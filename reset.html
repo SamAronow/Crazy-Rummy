@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reset Wild Rummy</title>
+<style>
+  body{
+    font-family:sans-serif;
+    background:#0b3d2e;
+    color:#f5f1e6;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:16px;
+    text-align:center;
+    padding:20px;
+  }
+  button{
+    font-size:15px;
+    font-weight:600;
+    padding:12px 22px;
+    border:none;
+    border-radius:8px;
+    cursor:pointer;
+    background:#a32638;
+    color:#fff;
+  }
+  button:disabled{opacity:.5;cursor:not-allowed;}
+  #status{font-size:13px;opacity:.8;min-height:20px;}
+</style>
+</head>
+<body>
+  <h2>Reset Wild Rummy</h2>
+  <p style="max-width:360px;opacity:.8;font-size:14px;">
+    This permanently deletes the shared game data &mdash; both lifetime scores,
+    the current round, and the active/inactive flag. Next time either Sam or
+    Zoe opens their link, the app will treat it as brand new.
+  </p>
+  <button id="resetBtn" onclick="doReset()">Delete Everything &amp; Reset</button>
+  <div id="status"></div>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="database.js"></script>
+  <script>
+    async function doReset(){
+      const ok = confirm('This will permanently erase both players\' scores and the current game. Continue?');
+      if(!ok) return;
+      const btn = document.getElementById('resetBtn');
+      const status = document.getElementById('status');
+      btn.disabled = true;
+      status.textContent = 'Deleting...';
+      try{
+        await database.ref('rummyGame').remove();
+        status.textContent = 'Done. The game is now brand new — open your ?as= link to start fresh.';
+      }catch(e){
+        console.error(e);
+        status.textContent = 'Something went wrong: ' + e.message;
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
