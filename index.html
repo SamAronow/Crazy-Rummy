@@ -1,0 +1,1557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wild Rummy</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CiAgPGRlZnM+CiAgICA8cGF0dGVybiBpZD0ic3RyaXBlcyIgd2lkdGg9IjgiIGhlaWdodD0iOCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgcGF0dGVyblRyYW5zZm9ybT0icm90YXRlKDEzNSkiPgogICAgICA8cmVjdCB3aWR0aD0iOCIgaGVpZ2h0PSI4IiBmaWxsPSIjMmIyNDcwIi8+CiAgICAgIDxyZWN0IHdpZHRoPSI0IiBoZWlnaHQ9IjgiIGZpbGw9IiMzYTJmOWMiLz4KICAgIDwvcGF0dGVybj4KICA8L2RlZnM+CiAgPHJlY3QgeD0iNiIgeT0iMyIgd2lkdGg9IjUyIiBoZWlnaHQ9IjU4IiByeD0iNyIgZmlsbD0idXJsKCNzdHJpcGVzKSIgc3Ryb2tlPSIjZjVmMWU2IiBzdHJva2Utd2lkdGg9IjMiLz4KPC9zdmc+">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --felt: #0b3d2e;
+    --felt-light: #145c43;
+    --felt-dark: #072a20;
+    --gold: #c9a227;
+    --gold-bright: #e8c468;
+    --cream: #f5f1e6;
+    --ink: #1b1b1b;
+    --red: #a32638;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{
+    font-family:'Inter',sans-serif;
+    background:
+      radial-gradient(ellipse at top, var(--felt-light) 0%, var(--felt) 55%, var(--felt-dark) 100%);
+    color:var(--cream);
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:16px;
+  }
+  h1,h2,h3{font-family:'Fraunces',serif;font-weight:700;margin:0;}
+  .eyebrow{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--gold-bright);
+    opacity:.85;
+  }
+  button{
+    font-family:'Inter',sans-serif;
+    font-weight:600;
+    font-size:14px;
+    border:none;
+    border-radius:8px;
+    padding:10px 18px;
+    cursor:pointer;
+    transition:transform .12s ease, box-shadow .12s ease, opacity .12s ease;
+  }
+  button:disabled{opacity:.35;cursor:not-allowed;transform:none;}
+  button:not(:disabled):hover{transform:translateY(-2px);}
+  .btn-gold{background:linear-gradient(180deg,var(--gold-bright),var(--gold));color:#241a02;box-shadow:0 3px 0 #8a6d15;}
+  .btn-outline{background:transparent;color:var(--cream);border:1.5px solid rgba(245,241,230,.4);}
+  .btn-outline:not(:disabled):hover{border-color:var(--gold-bright);color:var(--gold-bright);}
+
+  #layoutRow{display:flex;flex-direction:row;align-items:flex-start;justify-content:center;gap:0;width:100%;}
+  #app{width:100%;max-width:1180px;flex-shrink:1;min-width:0;}
+
+  #historyPanel{
+    width:0;
+    overflow:hidden;
+    flex-shrink:0;
+    align-self:stretch;
+    transition: width .32s cubic-bezier(.4,0,.2,1);
+  }
+  #historyPanel.open{width:320px;}
+  #historyPanelInner{
+    width:320px;
+    height:100%;
+    box-sizing:border-box;
+    padding:18px;
+    margin-left:14px;
+    background:rgba(7,42,32,.6);
+    border:1px solid rgba(201,162,39,.35);
+    border-radius:16px;
+  }
+
+  /* ---------- Game shell ---------- */
+  #game{display:none;width:100%;flex-direction:column;gap:14px;}
+  .topbar{
+    display:flex;justify-content:space-between;align-items:center;
+    background:rgba(0,0,0,.2);border-radius:12px;padding:10px 16px;
+    flex-wrap:wrap;gap:10px;
+  }
+  .score-pill{
+    font-family:'IBM Plex Mono',monospace;font-size:13px;
+    display:flex;gap:10px;align-items:center;
+  }
+  .score-pill span.name{color:rgba(245,241,230,.7);}
+  .score-pill span.num{color:var(--gold-bright);font-weight:600;}
+  .score-pill .lowest-note{font-size:10px;color:rgba(245,241,230,.4);margin-left:4px;}
+
+  .table{
+    background:radial-gradient(ellipse at center, var(--felt-light) 0%, var(--felt) 70%);
+    border:2px solid rgba(201,162,39,.3);
+    border-radius:20px;
+    padding:18px 24px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  .opp-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;}
+  .opp-info{display:flex;align-items:center;gap:10px;}
+  .cardback-stack{display:flex;}
+  .cardback{
+    width:34px;height:48px;border-radius:5px;margin-left:-18px;
+    background:repeating-linear-gradient(135deg,#2b2470,#2b2470 4px,#3a2f9c 4px,#3a2f9c 8px);
+    border:1.5px solid rgba(245,241,230,.5);
+    box-shadow:0 2px 4px rgba(0,0,0,.4);
+  }
+  .cardback:first-child{margin-left:0;}
+  .cardback.clickable{
+    cursor:pointer;
+    transition: transform .2s cubic-bezier(.34,1.56,.64,1), box-shadow .2s ease;
+  }
+  .cardback.clickable:hover{
+    transform: translateY(-10px) scale(1.06) rotate(-2deg);
+    box-shadow: 0 0 0 3px var(--gold-bright), 0 10px 18px rgba(0,0,0,.5);
+  }
+
+  .mid-row{display:flex;justify-content:center;align-items:flex-end;gap:36px;flex-wrap:wrap;}
+  .pile{display:flex;flex-direction:column;align-items:center;gap:6px;}
+  .pile-label{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:rgba(245,241,230,.6);}
+  .discard-stack-wrap{max-width:min(560px,80vw);overflow-x:auto;padding:4px 4px 8px 4px;}
+  .discard-stack{display:flex;}
+  .discard-stack .card{margin-left:-30px;}
+  .discard-stack .card:first-child{margin-left:0;}
+  .discard-stack .card.top-card{}
+  .card.must-play{outline:3px solid #ff6b6b;outline-offset:2px;}
+
+  .recap-row{display:flex;justify-content:center;gap:28px;flex-wrap:wrap;background:rgba(0,0,0,.18);border-radius:12px;padding:10px 14px;}
+  .recap-item{display:flex;flex-direction:column;align-items:center;gap:5px;}
+  .recap-item .recap-label{font-size:11px;color:rgba(245,241,230,.65);text-align:center;max-width:120px;}
+
+  .card{
+    width:58px;height:82px;border-radius:7px;background:var(--cream);
+    color:var(--ink);
+    display:flex;flex-direction:column;justify-content:space-between;
+    padding:5px 6px;font-weight:700;box-shadow:0 3px 6px rgba(0,0,0,.4);
+    position:relative;user-select:none;
+  }
+  .card.small{width:44px;height:62px;padding:3px 4px;}
+  .card.small .rank-top,.card.small .rank-bot{font-size:11px;}
+  .card.small .suit-mid{font-size:16px;}
+  .card.red{color:var(--red);}
+  .card .rank-top{font-size:15px;line-height:1;}
+  .card .suit-mid{font-size:22px;align-self:center;}
+  .card .rank-bot{font-size:15px;line-height:1;align-self:flex-end;transform:rotate(180deg);}
+  .card.wild{
+    border: 3px solid transparent;
+    background-image:
+      linear-gradient(var(--cream), var(--cream)),
+      linear-gradient(135deg, #2c5478 0%, #d3ecfa 22%, #16324f 48%, #d3ecfa 74%, #2c5478 100%);
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    box-shadow: 0 3px 6px rgba(0,0,0,.4), 0 0 6px rgba(150,200,230,.35);
+  }
+  .card.selected{transform:translateY(-10px);box-shadow:0 0 0 3px #6fd6ff,0 6px 10px rgba(0,0,0,.45);}
+  .card.clickable{cursor:pointer;}
+  .card.clickable:hover{transform:translateY(-6px);}
+  .card.empty-slot{background:transparent;border:2px dashed rgba(245,241,230,.35);box-shadow:none;}
+
+  .wild-medallion{display:flex;flex-direction:column;align-items:center;gap:4px;}
+  .medallion{
+    width:74px;height:74px;border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, var(--gold-bright), var(--gold) 60%, #8a6d15 100%);
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Fraunces',serif;font-weight:700;font-size:26px;color:#241a02;
+    box-shadow:0 0 0 3px rgba(0,0,0,.25), 0 4px 10px rgba(0,0,0,.5);
+    border:2px solid rgba(255,255,255,.4);
+  }
+
+  .melds-row{display:flex;flex-wrap:wrap;gap:12px;min-height:0;}
+  .melds-row.empty{display:none;}
+  .melds-heading{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:rgba(245,241,230,.5);width:100%;}
+  .meld-box{
+    display:flex;gap:4px;padding:8px;background:rgba(0,0,0,.2);
+    border:1px solid rgba(201,162,39,.4);border-radius:10px;align-items:center;
+  }
+  .meld-label{font-size:10px;color:rgba(245,241,230,.5);text-transform:uppercase;letter-spacing:.08em;margin-right:4px;}
+
+  .hand-section{display:flex;flex-direction:column;gap:10px;}
+  .hand-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;}
+  .status-text{font-size:14px;color:var(--gold-bright);font-weight:600;}
+  .hint-text{font-size:12px;color:rgba(245,241,230,.55);}
+  .hand-fan{display:flex;justify-content:center;padding:18px 0 6px 0;flex-wrap:wrap;}
+  .hand-fan .card{margin-left:-14px;transition:transform .15s ease;}
+  .hand-fan .card:first-child{margin-left:0;}
+  .hand-fan .card:hover{z-index:5;}
+  .action-row{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;}
+  .footnote{font-size:11px;color:rgba(245,241,230,.45);text-align:center;margin-top:6px;}
+
+  /* choice modal (for ambiguous wild placement) */
+  .modal-overlay{position:fixed;inset:0;background:rgba(4,15,11,.8);display:flex;align-items:center;justify-content:center;z-index:999;padding:20px;}
+  .modal-box{background:var(--felt-dark);border:1.5px solid var(--gold);border-radius:14px;padding:24px;max-width:340px;text-align:center;}
+  .modal-box p{font-size:14px;color:var(--cream);margin-bottom:16px;}
+  .modal-choices{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+</style>
+</head>
+<body>
+<div id="layoutRow">
+<div id="app">
+
+  <!-- ===================== GAME ===================== -->
+  <div id="game">
+    <div class="topbar">
+      <div class="eyebrow">Playing as <span id="myNameLabel">You</span></div>
+      <div class="score-pill">
+        <span class="name" id="myNamePillLabel">You</span><span class="num" id="myScoreLabel">0</span>
+        <span style="opacity:.4">&middot;</span>
+        <span class="name" id="oppNamePillLabel">Opponent</span><span class="num" id="oppScoreLabel">0</span>
+        <span class="lowest-note">(higher wins)</span>
+      </div>
+      <button class="btn-outline" id="historyBtn" style="padding:6px 12px;font-size:12px;">&#9776; History</button>
+    </div>
+
+    <div class="table">
+
+      <!-- landing / session gate -->
+      <div id="landingPanel" style="display:none;text-align:center;padding:40px 0;">
+        <h1 style="margin-bottom:8px;">Wild Rummy</h1>
+        <p style="opacity:.75;font-size:14px;margin-bottom:6px;" id="landingScores"></p>
+        <p style="opacity:.6;font-size:13px;margin-bottom:18px;">No game is currently on. Jump in whenever you're ready.</p>
+        <button class="btn-gold" id="enterGameBtn">Enter Game</button>
+      </div>
+
+      <!-- opponent row -->
+      <div class="opp-row" id="oppRow">
+        <div class="opp-info">
+          <div class="cardback-stack" id="oppCardbacks"></div>
+          <div>
+            <div class="eyebrow" id="oppTurnLabel">Opponent</div>
+            <div id="oppHandCount" style="font-size:13px;color:rgba(245,241,230,.7);"></div>
+          </div>
+        </div>
+        <div class="wild-medallion" id="wildMedallionWrap" style="display:none;">
+          <div class="medallion" id="wildMedallion">-</div>
+          <div class="eyebrow">Wild Rank</div>
+        </div>
+      </div>
+
+      <!-- opponent's laid-down melds - "in front of them" -->
+      <div class="melds-row" id="oppMeldsRow"></div>
+
+      <!-- who drew what to start the round -->
+      <div class="recap-row" id="recapRow" style="display:none;"></div>
+
+      <!-- deck / discard -->
+      <div class="mid-row" id="pilesRow"></div>
+
+      <!-- waiting / dealing / start states -->
+      <div id="statusPanel" style="text-align:center;"></div>
+
+      <!-- your laid-down melds - "in front of" your hand -->
+      <div class="melds-row" id="myMeldsRow"></div>
+
+      <!-- hand -->
+      <div class="hand-section" id="handSection" style="display:none;">
+        <div class="hand-header">
+          <div class="status-text" id="statusText"></div>
+          <div class="hint-text" id="hintText"></div>
+        </div>
+        <div class="hand-fan" id="handFan"></div>
+        <div class="action-row" id="actionRow"></div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- history drawer - slides in from the right, layout shifts to make room -->
+<div id="historyPanel">
+  <div id="historyPanelInner">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <h3 style="color:var(--gold-bright);font-size:16px;">Game History</h3>
+      <button class="btn-outline" id="closeHistoryBtn" style="padding:4px 10px;font-size:12px;">Close</button>
+    </div>
+    <div id="historyContent"></div>
+  </div>
+</div>
+
+</div>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="database.js"></script>
+
+<script>
+/* =========================================================================
+   CONSTANTS / CARD HELPERS
+   ========================================================================= */
+const GAME_PATH = 'rummyGame';
+const SEATS = ['sam','zoe'];
+const DISPLAY_NAME = {sam:'Sam', zoe:'Zoe'};
+
+const RANKS = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+const SUITS = ['S','H','D','C'];
+// Ace is HIGH: drawing an Ace deals 14 cards, and it sits above King for runs.
+const RANK_ORDER = {'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13,A:14};
+const RANK_BY_VALUE = {}; Object.keys(RANK_ORDER).forEach(r=>{ RANK_BY_VALUE[RANK_ORDER[r]] = r; });
+RANK_BY_VALUE[1] = 'A'; // for runs only: Ace can also sit low (A-2-3), just never wraps K-A-2
+const MIN_RANK = 2, MAX_RANK = 14;
+const SUIT_SYMBOL = {S:'&spades;',H:'&hearts;',D:'&diams;',C:'&clubs;'};   // for innerHTML (card faces)
+const SUIT_CHAR = {S:'\u2660',H:'\u2665',D:'\u2666',C:'\u2663'};           // for textContent (labels/buttons)
+const RED_SUITS = ['H','D'];
+
+function buildDeck(){
+  const deck=[];
+  RANKS.forEach(r=>SUITS.forEach(s=>deck.push(r+s)));
+  return deck;
+}
+function shuffle(arr){
+  const a = arr.slice();
+  for(let i=a.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+  return a;
+}
+function parseCard(card){
+  const suit = card.slice(-1);
+  const rank = card.slice(0,-1);
+  return {rank,suit};
+}
+function cardPoints(card, wildRank){
+  const {rank} = parseCard(card);
+  if(wildRank && rank === wildRank) return 100;
+  if(rank === 'A') return 100;
+  if(['10','J','Q','K'].includes(rank)) return 10;
+  return 5;
+}
+function genId(){ return 'm_'+Math.random().toString(36).slice(2,10); }
+
+/* =========================================================================
+   MELD ENGINE
+   A meld is: { id, type:'set'|'run', suit (run only), rank (set only),
+                starterSeat, slots:[ {card, isWild, ownerSeat, standsFor?} ] }
+   For a wild slot: standsFor is the rank (run) or suit (set) it represents.
+   At most ONE wild per meld, ever - enforced everywhere below.
+   ========================================================================= */
+function meldLabel(meld){
+  return meld.type==='set' ? (meld.rank+' set') : (SUIT_CHAR[meld.suit]+' run');
+}
+function meldRepresentedCard(meld, slot){
+  if(!slot.isWild) return slot.card;
+  return meld.type==='run' ? (slot.standsFor+meld.suit) : (meld.rank+slot.standsFor);
+}
+function meldHasWild(meld){ return meld.slots.some(s=>s.isWild); }
+// Every run slot carries an explicit resolved runValue (1-14) set at the moment
+// it's placed. Aces are the only rank with two possible values (1 or 14); once
+// placed, a slot's value is fixed - this is what makes "no wrap" automatic,
+// since a run can never simultaneously treat its Ace as both ends.
+function orderedRunSlots(meld){
+  return meld.slots.slice().sort((a,b)=>a.runValue-b.runValue);
+}
+
+// ---- forming a brand new meld from selected cards ----
+async function tryBuildSet(naturals, wildCard){
+  if(naturals.length===0) return null; // max 1 wild means a pure-wild set is impossible
+  const rank = parseCard(naturals[0]).rank;
+  for(const c of naturals) if(parseCard(c).rank!==rank) return null;
+  const usedSuits = naturals.map(c=>parseCard(c).suit);
+  if(new Set(usedSuits).size !== usedSuits.length) return null;
+  const total = naturals.length + (wildCard?1:0);
+  if(total<3 || total>4) return null;
+
+  const slots = naturals.map(c=>({card:c, isWild:false, ownerSeat:mySeat}));
+  if(wildCard){
+    const available = SUITS.filter(s=>!usedSuits.includes(s));
+    let standsFor;
+    if(available.length===1) standsFor = available[0];
+    else standsFor = await askChoice('Which suit is your wild standing in for?',
+      available.map(s=>({label:SUIT_CHAR[s]+' '+s, value:s})));
+    if(!standsFor) return null; // cancelled
+    slots.push({card:wildCard, isWild:true, standsFor, ownerSeat:mySeat});
+  }
+  return {id:genId(), type:'set', rank, starterSeat:mySeat, slots};
+}
+
+// Resolve numeric run-values for a set of naturals, given a chosen value (1 or
+// 14) for any Ace among them. Returns null if that leaves duplicate values.
+function resolveNaturalRunValues(naturals, aceValue){
+  const map = {};
+  for(const c of naturals){
+    const {rank} = parseCard(c);
+    map[c] = rank==='A' ? aceValue : RANK_ORDER[rank];
+  }
+  const vals = Object.values(map);
+  if(new Set(vals).size !== vals.length) return null;
+  return map;
+}
+
+async function tryBuildRun(naturals, wildCard){
+  if(naturals.length===0) return null;
+  const suit = parseCard(naturals[0]).suit;
+  for(const c of naturals) if(parseCard(c).suit!==suit) return null;
+  const hasAce = naturals.some(c=>parseCard(c).rank==='A');
+  const aceCandidates = hasAce ? [1,14] : [null];
+
+  for(const aceValue of aceCandidates){
+    const valueMap = resolveNaturalRunValues(naturals, aceValue);
+    if(!valueMap) continue;
+    const result = await buildRunFromValues(naturals, wildCard, valueMap);
+    if(result) return result;
+  }
+  return null;
+}
+
+async function buildRunFromValues(naturals, wildCard, valueMap){
+  const suit = parseCard(naturals[0]).suit;
+  const vals = naturals.map(c=>valueMap[c]);
+  const valSet = new Set(vals);
+  const sorted = [...valSet].sort((a,b)=>a-b);
+  const min = sorted[0], max = sorted[sorted.length-1];
+  const span = max-min+1;
+  const total = naturals.length + (wildCard?1:0);
+  if(total<3) return null;
+
+  const slots = naturals.map(c=>({card:c, isWild:false, ownerSeat:mySeat, runValue:valueMap[c]}));
+  if(wildCard){
+    const gaps = span - naturals.length;
+    if(gaps>1) return null; // 1 wild can only fill exactly one hole
+    let standsForVal;
+    if(gaps===1){
+      for(let v=min; v<=max; v++){ if(!valSet.has(v)){ standsForVal=v; break; } }
+    } else {
+      const canBefore = (min-1)>=1, canAfter = (max+1)<=14;
+      if(canBefore && canAfter){
+        standsForVal = await askChoice(
+          `Play your wild as ${RANK_BY_VALUE[min-1]} (before ${RANK_BY_VALUE[min]}) or ${RANK_BY_VALUE[max+1]} (after ${RANK_BY_VALUE[max]})?`,
+          [{label:'Play as '+RANK_BY_VALUE[min-1], value:min-1},{label:'Play as '+RANK_BY_VALUE[max+1], value:max+1}]);
+        if(standsForVal===undefined || standsForVal===null) return null; // cancelled
+      } else if(canBefore) standsForVal = min-1;
+      else if(canAfter) standsForVal = max+1;
+      else return null;
+    }
+    slots.push({card:wildCard, isWild:true, standsFor:RANK_BY_VALUE[standsForVal], ownerSeat:mySeat, runValue:standsForVal});
+  } else {
+    if(span !== naturals.length) return null; // must be fully contiguous with no wild
+  }
+  if(slots.length<3) return null;
+  return {id:genId(), type:'run', suit, starterSeat:mySeat, slots};
+}
+
+// ---- laying a single card onto an existing meld ----
+function canLayOffNaturalOnSet(meld, card){
+  const {rank, suit} = parseCard(card);
+  if(rank !== meld.rank) return false;
+  if(meld.slots.length>=4) return false;
+  const used = meld.slots.map(s=> s.isWild ? s.standsFor : parseCard(s.card).suit);
+  return !used.includes(suit);
+}
+// Returns the resolved numeric value the card would take on if laid onto this
+// run, or null if it doesn't fit. An Ace resolves to whichever end (1 or 14)
+// is actually open - never both, so this can never create a wrap-around.
+function layoffValueForRun(meld, card){
+  const {rank, suit} = parseCard(card);
+  if(suit !== meld.suit) return null;
+  const vals = meld.slots.map(s=>s.runValue);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  if(rank==='A'){
+    if(min-1===1) return 1;
+    if(max+1===14) return 14;
+    return null;
+  }
+  const v = RANK_ORDER[rank];
+  if(v===min-1 || v===max+1) return v;
+  return null;
+}
+function wildLayoffOptionsForSet(meld){
+  if(meld.type!=='set' || meldHasWild(meld) || meld.slots.length>=4) return [];
+  const used = meld.slots.map(s=>parseCard(s.card).suit);
+  return SUITS.filter(s=>!used.includes(s));
+}
+function wildLayoffOptionsForRun(meld){
+  if(meld.type!=='run' || meldHasWild(meld)) return [];
+  const vals = meld.slots.map(s=>s.runValue);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const opts = [];
+  if(min-1>=1) opts.push(min-1);
+  if(max+1<=14) opts.push(max+1);
+  return opts;
+}
+
+// Every way `card` (from my hand) could be played onto existing melds.
+function computeLayoffOptions(card, melds, wildRank){
+  // You can't add to any meld - yours or your opponent's - until you've
+  // put down at least one meld of your own first.
+  const haveOwnMeld = melds.some(m=>m.starterSeat===mySeat);
+  if(!haveOwnMeld) return [];
+
+  const {rank} = parseCard(card);
+  const isWild = rank === wildRank;
+  const options = [];
+  melds.forEach(meld=>{
+    if(isWild){
+      if(meld.type==='set'){
+        wildLayoffOptionsForSet(meld).forEach(s=>
+          options.push({meldId:meld.id, kind:'wild-set', standsFor:s, label:`Lay off on ${meldLabel(meld)} as ${SUIT_CHAR[s]}`}));
+      } else {
+        wildLayoffOptionsForRun(meld).forEach(v=>
+          options.push({meldId:meld.id, kind:'wild-run', standsFor:RANK_BY_VALUE[v], runValue:v, label:`Lay off on ${meldLabel(meld)} as ${RANK_BY_VALUE[v]}`}));
+      }
+    } else {
+      if(meld.type==='set' && canLayOffNaturalOnSet(meld, card))
+        options.push({meldId:meld.id, kind:'natural-set', label:`Lay off on ${meldLabel(meld)}`});
+      if(meld.type==='run'){
+        const fit = layoffValueForRun(meld, card);
+        if(fit!==null) options.push({meldId:meld.id, kind:'natural-run', runValue:fit, label:`Lay off on ${meldLabel(meld)}`});
+      }
+      meld.slots.forEach((slot,idx)=>{
+        if(slot.isWild && meldRepresentedCard(meld, slot)===card){
+          options.push({meldId:meld.id, kind:'replace-wild', slotIndex:idx, label:`Swap into ${meldLabel(meld)} (take the wild)`});
+        }
+      });
+    }
+  });
+  return options;
+}
+
+/* ---- can `card` be played immediately, either onto an existing meld or as
+   part of a brand new one with cards already in hand? Used to gate digging
+   into the discard pile for a card that isn't on top. ---- */
+function canPlayCardNow(card, hand, melds, wildRank){
+  if(computeLayoffOptions(card, melds, wildRank).length>0) return true;
+
+  const {rank, suit} = parseCard(card);
+  const isWildCard = rank===wildRank;
+  const others = hand.filter(c=>c!==card);
+  const otherWild = others.find(c=>parseCard(c).rank===wildRank) || null;
+
+  if(!isWildCard){
+    // could it join 2 other naturals (or 1 natural + the wild) into a new SET?
+    const sameRankOthers = others.filter(c=>parseCard(c).rank===rank && parseCard(c).suit!==suit);
+    const suitsSeen = new Set([suit]);
+    let count = 1;
+    for(const c of sameRankOthers){
+      const s = parseCard(c).suit;
+      if(!suitsSeen.has(s)){ suitsSeen.add(s); count++; }
+      if(count>=3) return true;
+    }
+    if(count===2 && otherWild) return true;
+
+    // could it join a new RUN (pure naturals, or naturals + the 1 available wild)?
+    // an Ace (target or helper) contributes both its candidate values (1 and 14),
+    // but a window can only use one of them at a time - duplicate-value collapse
+    // in the Set below already prevents treating an Ace as two cards at once.
+    const sameSuitOthers = others.filter(c=>parseCard(c).suit===suit);
+    const valueOptions = r => r==='A' ? [1,14] : [RANK_ORDER[r]];
+    const cardValCandidates = valueOptions(rank);
+    for(const cardVal of cardValCandidates){
+      const vals = new Set([cardVal]);
+      sameSuitOthers.forEach(c=>{
+        const r = parseCard(c).rank;
+        valueOptions(r).forEach(v=>vals.add(v));
+      });
+      const sorted = [...vals].sort((a,b)=>a-b);
+      for(let i=0;i<sorted.length;i++){
+        for(let j=i;j<sorted.length;j++){
+          const windowVals = sorted.slice(i,j+1);
+          if(!windowVals.includes(cardVal)) continue;
+          const span = windowVals[windowVals.length-1]-windowVals[0]+1;
+          const gaps = span - windowVals.length;
+          if(windowVals.length>=3 && gaps===0) return true;
+          if(gaps===1 && otherWild && (windowVals.length+1)>=3) return true;
+        }
+      }
+    }
+  } else {
+    // the card itself is the wild: could it complete a new SET or RUN?
+    const rankGroups = {};
+    others.forEach(c=>{
+      const p = parseCard(c);
+      if(p.rank===wildRank) return;
+      (rankGroups[p.rank] = rankGroups[p.rank]||new Set()).add(p.suit);
+    });
+    for(const r in rankGroups){ if(rankGroups[r].size>=2) return true; }
+
+    const suitGroups = {};
+    others.forEach(c=>{
+      const p = parseCard(c);
+      if(p.rank===wildRank) return;
+      const options = p.rank==='A' ? [1,14] : [RANK_ORDER[p.rank]];
+      const set = suitGroups[p.suit] = suitGroups[p.suit]||new Set();
+      options.forEach(v=>set.add(v));
+    });
+    for(const s in suitGroups){
+      const vals = [...suitGroups[s]].sort((a,b)=>a-b);
+      for(let i=0;i<vals.length;i++){
+        for(let j=i+1;j<vals.length;j++){
+          const span = vals[j]-vals[i]+1;
+          const count = j-i+1;
+          const gaps = span-count;
+          if(gaps<=1 && (count+1)>=3) return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/* ---- small choice modal, used only for genuinely ambiguous wild placement ---- */
+function showDigConfirmModal(targetCard, otherCards, wildRank){
+  return new Promise(resolve=>{
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+
+    const title = document.createElement('h3');
+    title.style.cssText = 'color:var(--gold-bright);margin-bottom:12px;font-size:18px;';
+    title.textContent = otherCards.length ? 'Dig into the discard pile?' : 'Take this card?';
+    box.appendChild(title);
+
+    const cardsRow = document.createElement('div');
+    cardsRow.style.cssText = 'display:flex;justify-content:center;gap:6px;margin-bottom:14px;flex-wrap:wrap;';
+    cardsRow.appendChild(htmlToEl(cardHTML(targetCard, wildRank, false)));
+    otherCards.forEach(c=>cardsRow.appendChild(htmlToEl(cardHTML(c, wildRank, false))));
+    box.appendChild(cardsRow);
+
+    const msg = document.createElement('p');
+    msg.textContent = otherCards.length
+      ? `You'll take all ${1+otherCards.length} of these cards. You must play ${targetCard} this turn.`
+      : `You must play ${targetCard} this turn.`;
+    box.appendChild(msg);
+
+    const row = document.createElement('div');
+    row.className = 'modal-choices';
+    const yes = document.createElement('button');
+    yes.className = 'btn-gold';
+    yes.textContent = 'Take Cards';
+    yes.onclick = ()=>{ document.body.removeChild(overlay); resolve(true); };
+    const no = document.createElement('button');
+    no.className = 'btn-outline';
+    no.textContent = 'Cancel';
+    no.onclick = ()=>{ document.body.removeChild(overlay); resolve(false); };
+    row.appendChild(yes); row.appendChild(no);
+    box.appendChild(row);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  });
+}
+
+let historyPanelOpen = false;
+
+function renderHistoryContent(){
+  const data = currentGameData || {};
+  const history = data.history || [];
+  const el = document.getElementById('historyContent');
+  if(!el) return;
+
+  if(history.length===0){
+    el.innerHTML = '<p style="font-size:13px;opacity:.7;">No rounds finished yet.</p>';
+    return;
+  }
+  const rows = history.slice().reverse().map(h=>{
+    const aheadName = h.diff>=0 ? 'Sam' : 'Zoe';
+    const diffAbs = Math.abs(h.diff);
+    return `<tr style="border-bottom:1px solid rgba(245,241,230,.1);">
+      <td style="padding:6px 4px;">${h.n}</td>
+      <td style="padding:6px 4px;">${DISPLAY_NAME[h.winner]}</td>
+      <td style="padding:6px 4px;text-align:right;">${h.samTotal}</td>
+      <td style="padding:6px 4px;text-align:right;">${h.zoeTotal}</td>
+      <td style="padding:6px 4px;text-align:right;color:${h.diff>=0?'#8fd9a8':'#ffb4bd'};">${aheadName} +${diffAbs}</td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = `
+    <div style="max-height:calc(100vh - 160px);overflow-y:auto;">
+      <table style="width:100%;border-collapse:collapse;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--cream);">
+        <thead>
+          <tr style="border-bottom:1.5px solid rgba(201,162,39,.5);">
+            <th style="text-align:left;padding:6px 4px;">#</th>
+            <th style="text-align:left;padding:6px 4px;">Won by</th>
+            <th style="text-align:right;padding:6px 4px;">Sam</th>
+            <th style="text-align:right;padding:6px 4px;">Zoe</th>
+            <th style="text-align:right;padding:6px 4px;">Diff</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function toggleHistoryPanel(){
+  historyPanelOpen = !historyPanelOpen;
+  document.getElementById('historyPanel').classList.toggle('open', historyPanelOpen);
+  if(historyPanelOpen) renderHistoryContent();
+}
+function closeHistoryPanel(){
+  historyPanelOpen = false;
+  document.getElementById('historyPanel').classList.remove('open');
+}
+
+function showInvalidMeldModal(){
+  return new Promise(resolve=>{
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+
+    const title = document.createElement('h3');
+    title.style.cssText = 'color:#ff9b9b;margin-bottom:12px;font-size:18px;';
+    title.textContent = "That's not a valid set or run";
+    box.appendChild(title);
+
+    const msg = document.createElement('p');
+    msg.textContent = 'Sets need matching ranks in different suits. Runs need consecutive cards of the same suit \u2014 Ace can go low or high, but never wraps from King to Ace to 2.';
+    box.appendChild(msg);
+
+    const btn = document.createElement('button');
+    btn.className = 'btn-gold';
+    btn.textContent = 'OK';
+    btn.onclick = ()=>{ document.body.removeChild(overlay); resolve(); };
+    box.appendChild(btn);
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  });
+}
+
+function showTooManyWildsModal(){
+  return new Promise(resolve=>{
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+
+    const title = document.createElement('h3');
+    title.style.cssText = 'color:#ff9b9b;margin-bottom:12px;font-size:18px;';
+    title.textContent = "Only one wild per meld";
+    box.appendChild(title);
+
+    const msg = document.createElement('p');
+    msg.textContent = 'A set or run can only ever include a single wild card.';
+    box.appendChild(msg);
+
+    const btn = document.createElement('button');
+    btn.className = 'btn-gold';
+    btn.textContent = 'OK';
+    btn.onclick = ()=>{ document.body.removeChild(overlay); resolve(); };
+    box.appendChild(btn);
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  });
+}
+
+function showCantPlayModal(targetCard, wildRank){
+  return new Promise(resolve=>{
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+
+    const title = document.createElement('h3');
+    title.style.cssText = 'color:#ff9b9b;margin-bottom:12px;font-size:18px;';
+    title.textContent = "Can't take that card yet";
+    box.appendChild(title);
+
+    const cardsRow = document.createElement('div');
+    cardsRow.style.cssText = 'display:flex;justify-content:center;margin-bottom:14px;';
+    cardsRow.appendChild(htmlToEl(cardHTML(targetCard, wildRank, false)));
+    box.appendChild(cardsRow);
+
+    const msg = document.createElement('p');
+    msg.textContent = `You need to be able to play ${targetCard} right away \u2014 either onto a meld already in play, or as part of a new one with cards in your hand.`;
+    box.appendChild(msg);
+
+    const btn = document.createElement('button');
+    btn.className = 'btn-gold';
+    btn.textContent = 'OK';
+    btn.onclick = ()=>{ document.body.removeChild(overlay); resolve(); };
+    box.appendChild(btn);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  });
+}
+
+function sortedHandForDisplay(hand){
+  if(handSortMode==='none') return hand;
+  const copy = hand.slice();
+  if(handSortMode==='rank'){
+    copy.sort((a,b)=>{
+      const ra=RANK_ORDER[parseCard(a).rank], rb=RANK_ORDER[parseCard(b).rank];
+      if(ra!==rb) return ra-rb;
+      return parseCard(a).suit.localeCompare(parseCard(b).suit);
+    });
+  } else if(handSortMode==='suit'){
+    const suitOrder = {S:0,H:1,D:2,C:3};
+    copy.sort((a,b)=>{
+      const sa=suitOrder[parseCard(a).suit], sb=suitOrder[parseCard(b).suit];
+      if(sa!==sb) return sa-sb;
+      return RANK_ORDER[parseCard(a).rank]-RANK_ORDER[parseCard(b).rank];
+    });
+  }
+  return copy;
+}
+function openSortModal(){
+  askChoice('Sort your hand by:', [
+    {label:'Number', value:'rank'},
+    {label:'Suit, then Number', value:'suit'},
+    {label:'Original order', value:'none'}
+  ]).then(choice=>{
+    if(choice){ handSortMode = choice; renderGame(currentGameData); }
+  });
+}
+
+function askChoice(message, options){
+  return new Promise(resolve=>{
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+    const msg = document.createElement('p');
+    msg.textContent = message;
+    box.appendChild(msg);
+    const row = document.createElement('div');
+    row.className = 'modal-choices';
+    options.forEach(opt=>{
+      const b = document.createElement('button');
+      b.className = 'btn-gold';
+      b.textContent = opt.label;
+      b.onclick = ()=>{ document.body.removeChild(overlay); resolve(opt.value); };
+      row.appendChild(b);
+    });
+    const cancel = document.createElement('button');
+    cancel.className = 'btn-outline';
+    cancel.textContent = 'Cancel';
+    cancel.onclick = ()=>{ document.body.removeChild(overlay); resolve(null); };
+    row.appendChild(cancel);
+    box.appendChild(row);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  });
+}
+
+/* =========================================================================
+   STATE
+   ========================================================================= */
+let mySeat = null;             // 'sam' or 'zoe', fixed from the URL for this whole session
+let currentGameData = null;
+let unsubscribe = null;
+let selectedCards = new Set(); // cards currently picked, before grouping/laying off/discarding
+let handSortMode = 'none';     // 'none' | 'rank' | 'suit' - display only, never touches the DB
+let actionLock = false;        // prevents double-submitting the same action
+let localActive = false;       // per-device: am I looking at the table or the landing page?
+
+const otherSeat = s => s==='sam' ? 'zoe' : 'sam';
+
+async function guarded(fn){
+  if(actionLock) return;
+  actionLock = true;
+  try{
+    await fn();
+  } catch(e){
+    console.error(e);
+    alert('Something went wrong: '+(e && e.message ? e.message : e));
+  } finally {
+    actionLock = false;
+  }
+}
+
+/* =========================================================================
+   ENTRY: identity comes only from ?as=sam / ?as=zoe
+   ========================================================================= */
+window.addEventListener('load', ()=>{
+  const params = new URLSearchParams(location.search);
+  const as = (params.get('as')||'').toLowerCase();
+  if(SEATS.includes(as)){
+    mySeat = as;
+    localActive = localStorage.getItem('rummyEntered_'+mySeat) === 'true';
+    enterGame();
+  }
+});
+
+function enterGame(){
+  document.getElementById('game').style.display = 'flex';
+  document.getElementById('historyBtn').onclick = toggleHistoryPanel;
+  document.getElementById('closeHistoryBtn').onclick = closeHistoryPanel;
+  if(unsubscribe) unsubscribe();
+  unsubscribe = listen(GAME_PATH, onGameData);
+}
+
+// Purely local - does not touch the database, and does not affect the other player.
+function localEnter(){
+  localActive = true;
+  localStorage.setItem('rummyEntered_'+mySeat, 'true');
+  renderGame(currentGameData);
+}
+function localBackToStart(){
+  localActive = false;
+  localStorage.setItem('rummyEntered_'+mySeat, 'false');
+  renderGame(currentGameData);
+}
+
+async function onGameData(data){
+  if(!data){
+    await writeAsync(GAME_PATH, {status:'idle', scores:{sam:0, zoe:0}});
+    return; // listener fires again with the freshly written data
+  }
+  if(!data.scores){
+    await updateAsync(GAME_PATH, {scores:{sam:0, zoe:0}});
+    return;
+  }
+  renderGame(data);
+}
+
+/* =========================================================================
+   RENDER LOOP
+   ========================================================================= */
+function renderGame(data){
+  currentGameData = data;
+  if(historyPanelOpen) renderHistoryContent();
+  const me = DISPLAY_NAME[mySeat];
+  const opp = DISPLAY_NAME[otherSeat(mySeat)];
+
+  document.getElementById('myNameLabel').textContent = me;
+  document.getElementById('myNamePillLabel').textContent = me;
+  document.getElementById('oppNamePillLabel').textContent = opp;
+  document.getElementById('myScoreLabel').textContent = (data.scores && data.scores[mySeat]) || 0;
+  document.getElementById('oppScoreLabel').textContent = (data.scores && data.scores[otherSeat(mySeat)]) || 0;
+
+  const landing = document.getElementById('landingPanel');
+  const oppRow = document.getElementById('oppRow');
+  const oppMeldsRow = document.getElementById('oppMeldsRow');
+  const myMeldsRow = document.getElementById('myMeldsRow');
+  const recapRow = document.getElementById('recapRow');
+  const pilesRow = document.getElementById('pilesRow');
+  const statusPanel = document.getElementById('statusPanel');
+  const handSection = document.getElementById('handSection');
+
+  if(!localActive){
+    landing.style.display = 'block';
+    oppRow.style.display = 'none';
+    oppMeldsRow.innerHTML = ''; myMeldsRow.innerHTML = '';
+    recapRow.style.display = 'none';
+    pilesRow.style.display = 'none';
+    statusPanel.innerHTML = '';
+    handSection.style.display = 'none';
+    const sam = (data.scores && data.scores.sam) || 0;
+    const zoe = (data.scores && data.scores.zoe) || 0;
+    document.getElementById('landingScores').textContent = `Lifetime scores \u2014 Sam: ${sam} \u00b7 Zoe: ${zoe} (higher wins)`;
+    document.getElementById('enterGameBtn').onclick = localEnter;
+    return;
+  }
+
+  landing.style.display = 'none';
+  oppRow.style.display = 'flex';
+  pilesRow.style.display = 'flex';
+
+  const wrap = document.getElementById('wildMedallionWrap');
+  if(data.wildRank){
+    wrap.style.display = 'flex';
+    document.getElementById('wildMedallion').textContent = data.wildRank;
+  } else {
+    wrap.style.display = 'none';
+  }
+
+  renderRecap(data);
+
+  const oppHand = (data.hands && data.hands[otherSeat(mySeat)]) || [];
+  renderOppCardbacks(oppHand.length);
+  document.getElementById('oppHandCount').textContent = oppHand.length ? (oppHand.length+' cards') : '';
+  document.getElementById('oppTurnLabel').textContent = (data.status==='playing' && data.turn===otherSeat(mySeat)) ? opp+' \u2014 their turn' : opp;
+
+  pilesRow.innerHTML = '';
+  statusPanel.innerHTML = '';
+  handSection.style.display = 'none';
+
+  if(data.status === 'idle'){
+    oppMeldsRow.innerHTML=''; myMeldsRow.innerHTML='';
+    statusPanel.innerHTML = `
+      <h3 style="color:var(--gold-bright)">Ready when you are</h3>
+      <p style="opacity:.75;font-size:14px;margin-bottom:14px;">Whoever deals this round draws first, then the other player draws and goes first.</p>
+      <button class="btn-gold" id="startRoundBtn">Start Round</button>`;
+    wireOnce('startRoundBtn', ()=>startRound());
+    return;
+  }
+
+  if(data.status === 'dealing'){
+    oppMeldsRow.innerHTML=''; myMeldsRow.innerHTML='';
+    renderDealing(data, statusPanel);
+    return;
+  }
+
+  if(data.status === 'playing'){
+    renderMelds(data);
+    renderPiles(data, pilesRow);
+    renderHand(data, handSection);
+    return;
+  }
+
+  if(data.status === 'roundEnd'){
+    renderMelds(data);
+    renderPiles(data, pilesRow);
+    renderRoundEnd(data);
+    return;
+  }
+}
+
+// Attach a click handler that disables the button immediately and runs
+// the action through the guarded() lock, so a second click (or a click
+// from the other player's tab landing a moment later) can't double-fire.
+function wireOnce(buttonId, fn){
+  const btn = document.getElementById(buttonId);
+  if(!btn) return;
+  btn.onclick = ()=>{
+    btn.disabled = true;
+    guarded(fn);
+  };
+}
+
+function renderRecap(data){
+  const row = document.getElementById('recapRow');
+  if(!data.wildCardDrawn){ row.style.display='none'; row.innerHTML=''; return; }
+  row.style.display = 'flex';
+  row.innerHTML = '';
+
+  const dealerName = DISPLAY_NAME[data.dealerSeat];
+  const dealerItem = document.createElement('div');
+  dealerItem.className = 'recap-item';
+  dealerItem.appendChild(htmlToEl(cardHTML(data.wildCardDrawn, data.wildRank, false)));
+  const dl = document.createElement('div');
+  dl.className = 'recap-label';
+  dl.textContent = dealerName + ' dealt \u2014 wild rank';
+  dealerItem.appendChild(dl);
+  row.appendChild(dealerItem);
+
+  if(data.otherCardDrawn){
+    const nonDealer = otherSeat(data.dealerSeat);
+    const count = RANK_ORDER[parseCard(data.otherCardDrawn).rank];
+    const otherItem = document.createElement('div');
+    otherItem.className = 'recap-item';
+    otherItem.appendChild(htmlToEl(cardHTML(data.otherCardDrawn, data.wildRank, false)));
+    const ol = document.createElement('div');
+    ol.className = 'recap-label';
+    ol.textContent = DISPLAY_NAME[nonDealer] + ' drew \u2014 ' + count + ' cards dealt';
+    otherItem.appendChild(ol);
+    row.appendChild(otherItem);
+  }
+}
+
+function renderOppCardbacks(count){
+  const el = document.getElementById('oppCardbacks');
+  el.innerHTML = '';
+  const shown = Math.min(count, 14);
+  for(let i=0;i<shown;i++){
+    const d = document.createElement('div');
+    d.className='cardback';
+    el.appendChild(d);
+  }
+}
+
+function renderDealing(data, statusPanel){
+  document.getElementById('handSection').style.display='none';
+  const dealerSeat = data.dealerSeat;
+  const dealerName = DISPLAY_NAME[dealerSeat];
+  const otherName = DISPLAY_NAME[otherSeat(dealerSeat)];
+
+  if(data.dealPhase === 'dealer'){
+    if(mySeat===dealerSeat){
+      statusPanel.innerHTML = `
+        <h3 style="color:var(--gold-bright)">You're dealing this round</h3>
+        <p style="opacity:.75;font-size:14px;margin-bottom:14px;">Draw a card &mdash; its rank becomes wild, and it plus more cards up to that rank's value make up your hand (Ace is high, worth 14).</p>
+        <button class="btn-gold" id="dealerDrawBtn">Draw Wild Card</button>`;
+      wireOnce('dealerDrawBtn', ()=>dealerDraw());
+    } else {
+      statusPanel.innerHTML = `<h3 style="color:var(--gold-bright)">${dealerName} is drawing the wild card...</h3>`;
+    }
+  } else if(data.dealPhase === 'other'){
+    if(mySeat!==dealerSeat){
+      statusPanel.innerHTML = `
+        <h3 style="color:var(--gold-bright)">Wild rank is ${data.wildRank}</h3>
+        <p style="opacity:.75;font-size:14px;margin-bottom:14px;">Now draw your own card &mdash; that card plus more, up to its value, become your hand. You'll also go first.</p>
+        <button class="btn-gold" id="otherDrawBtn">Draw Card</button>`;
+      wireOnce('otherDrawBtn', ()=>otherDraw());
+    } else {
+      statusPanel.innerHTML = `<h3 style="color:var(--gold-bright)">Wild rank is ${data.wildRank}. Waiting for ${otherName} to draw...</h3>`;
+    }
+  }
+}
+
+function renderPiles(data, pilesRow){
+  const deckCount = (data.deck||[]).length;
+  const discard = data.discard||[];
+  const myTurn = data.turn===mySeat;
+  const canDraw = myTurn && data.subphase==='draw';
+
+  const deckDiv = document.createElement('div');
+  deckDiv.className='pile';
+  const deckBack = document.createElement('div');
+  deckBack.className = 'cardback' + (canDraw?' clickable':'');
+  deckBack.style.cssText = 'margin-left:0;width:58px;height:82px;border-radius:7px;' + (canDraw?'cursor:pointer;':'');
+  deckDiv.innerHTML = `<div class="pile-label">Deck (${deckCount})</div>`;
+  deckDiv.appendChild(deckBack);
+  if(canDraw) deckBack.addEventListener('click', ()=>guarded(drawFromDeck));
+  pilesRow.appendChild(deckDiv);
+
+  const discardDiv = document.createElement('div');
+  discardDiv.className='pile';
+  discardDiv.innerHTML = `<div class="pile-label">Discard Pile (oldest \u2192 newest)</div>`;
+  const wrap = document.createElement('div');
+  wrap.className = 'discard-stack-wrap';
+  const stack = document.createElement('div');
+  stack.className = 'discard-stack';
+  if(discard.length===0){
+    stack.appendChild(htmlToEl(`<div class="card empty-slot"></div>`));
+  } else {
+    discard.forEach((card, idx)=>{
+      const isTop = idx === discard.length-1;
+      const el = htmlToEl(cardHTML(card, data.wildRank, canDraw));
+      if(isTop) el.classList.add('top-card');
+      if(canDraw){
+        el.addEventListener('click', ()=>{
+          if(isTop) guarded(drawFromDiscard);
+          else guarded(()=>drawFromDiscardDig(idx));
+        });
+      }
+      stack.appendChild(el);
+    });
+  }
+  wrap.appendChild(stack);
+  discardDiv.appendChild(wrap);
+  pilesRow.appendChild(discardDiv);
+}
+
+function cardHTML(card, wildRank, clickable, small){
+  const {rank, suit} = parseCard(card);
+  const isRed = RED_SUITS.includes(suit);
+  const isWild = wildRank && rank===wildRank;
+  return `<div class="card ${small?'small':''} ${isRed?'red':''} ${isWild?'wild':''} ${clickable?'clickable':''}" data-card="${card}">
+      <div class="rank-top">${rank}${SUIT_SYMBOL[suit]}</div>
+      <div class="suit-mid">${SUIT_SYMBOL[suit]}</div>
+      <div class="rank-bot">${rank}${SUIT_SYMBOL[suit]}</div>
+    </div>`;
+}
+function htmlToEl(html){
+  const t = document.createElement('template');
+  t.innerHTML = html.trim();
+  return t.content.firstChild;
+}
+
+/* ---------------- Melds (in-play cards) rendering ---------------- */
+function renderMelds(data){
+  const oppRow = document.getElementById('oppMeldsRow');
+  const myRow = document.getElementById('myMeldsRow');
+  oppRow.innerHTML = ''; myRow.innerHTML = '';
+  const melds = data.melds || [];
+  const wildRank = data.wildRank;
+
+  melds.forEach(meld=>{
+    const box = document.createElement('div');
+    box.className='meld-box';
+    const lbl = document.createElement('span');
+    lbl.className='meld-label';
+    lbl.textContent = meldLabel(meld);
+    box.appendChild(lbl);
+    const slots = meld.type==='run' ? orderedRunSlots(meld) : meld.slots;
+    slots.forEach(slot=>box.appendChild(htmlToEl(cardHTML(slot.card, wildRank, false))));
+    (meld.starterSeat===mySeat ? myRow : oppRow).appendChild(box);
+  });
+}
+
+/* ---------------- Hand rendering ---------------- */
+function renderHand(data, handSection){
+  handSection.style.display='flex';
+  const hand = (data.hands && data.hands[mySeat]) || [];
+  const wildRank = data.wildRank;
+  const myTurn = data.turn === mySeat;
+  const subphase = data.subphase;
+  const canAct = myTurn && subphase==='discard';
+  const melds = data.melds || [];
+  const haveOwnMeld = melds.some(m=>m.starterSeat===mySeat);
+  const mustPlay = (data.mustPlayCard && hand.includes(data.mustPlayCard)) ? data.mustPlayCard : null;
+
+  const handSet = new Set(hand);
+  selectedCards.forEach(c=>{ if(!handSet.has(c)) selectedCards.delete(c); });
+  // The dug-up card is pinned into the selection so nothing else can be
+  // submitted until it's actually played - this is what prevents getting
+  // stuck: you can't spend your turn on unrelated plays first.
+  if(mustPlay) selectedCards.add(mustPlay);
+
+  document.getElementById('statusText').textContent = !myTurn
+    ? "Opponent's turn"
+    : subphase==='draw' ? 'Your turn \u2014 draw from the deck or discard pile'
+    : 'Your turn \u2014 select cards to build a meld, lay a card onto one in play, or discard';
+  document.getElementById('hintText').textContent = !canAct ? ''
+    : mustPlay
+      ? `You dug for ${mustPlay} \u2014 it's locked in selected. Play it now (add other cards to meld it, or use a lay-off option) before doing anything else.`
+      : !haveOwnMeld
+        ? 'You need a meld of your own down before you can lay cards off onto any meld \u2014 yours or theirs. Select 3+ cards for your first meld.'
+        : 'Melds are laid down for good once played. Select 3+ cards for a new meld, or select 1 card to lay off, swap, or discard.';
+
+  // your hand - click to select
+  const fan = document.getElementById('handFan');
+  fan.innerHTML = '';
+  sortedHandForDisplay(hand).forEach(c=>{
+    const el = htmlToEl(cardHTML(c, wildRank, canAct));
+    if(selectedCards.has(c)) el.classList.add('selected');
+    if(mustPlay===c) el.classList.add('must-play');
+    if(canAct && c!==mustPlay){ // the pinned card can't be toggled off
+      el.addEventListener('click', ()=>{
+        if(selectedCards.has(c)) selectedCards.delete(c);
+        else selectedCards.add(c);
+        renderGame(currentGameData);
+      });
+    }
+    fan.appendChild(el);
+  });
+
+  // action buttons
+  const actionRow = document.getElementById('actionRow');
+  actionRow.innerHTML = '';
+
+  const groupBtn = document.createElement('button');
+  groupBtn.className='btn-outline';
+  groupBtn.textContent='Group Selected (new meld)';
+  groupBtn.disabled = !(canAct && selectedCards.size>=3);
+  groupBtn.onclick = ()=>{
+    groupBtn.disabled = true;
+    guarded(confirmGroup);
+  };
+  actionRow.appendChild(groupBtn);
+
+  if(canAct && selectedCards.size===1){
+    const selectedCard = Array.from(selectedCards)[0];
+    const options = computeLayoffOptions(selectedCard, melds, wildRank);
+    options.forEach(opt=>{
+      const btn = document.createElement('button');
+      btn.className='btn-outline';
+      btn.textContent = opt.label;
+      btn.onclick = ()=>{ btn.disabled = true; guarded(()=>performLayoff(selectedCard, opt)); };
+      actionRow.appendChild(btn);
+    });
+  }
+
+  const discardBtn = document.createElement('button');
+  discardBtn.className='btn-gold';
+  discardBtn.textContent='Discard Selected';
+  discardBtn.disabled = !(canAct && selectedCards.size===1 && !mustPlay);
+  discardBtn.onclick = ()=>{
+    discardBtn.disabled = true;
+    const card = Array.from(selectedCards)[0];
+    guarded(()=>performDiscard(card));
+  };
+  actionRow.appendChild(discardBtn);
+
+  const clearBtn = document.createElement('button');
+  clearBtn.className='btn-outline';
+  clearBtn.textContent='Clear Selection';
+  clearBtn.disabled = selectedCards.size===0 || (mustPlay && selectedCards.size===1);
+  clearBtn.onclick = ()=>{
+    selectedCards.clear();
+    if(mustPlay) selectedCards.add(mustPlay);
+    renderGame(currentGameData);
+  };
+  actionRow.appendChild(clearBtn);
+
+  const sortBtn = document.createElement('button');
+  sortBtn.className='btn-outline';
+  sortBtn.textContent='Sort Hand';
+  sortBtn.onclick = openSortModal;
+  actionRow.appendChild(sortBtn);
+}
+
+/* =========================================================================
+   ROUND END
+   ========================================================================= */
+function renderRoundEnd(data){
+  document.getElementById('handSection').style.display='none';
+  const statusPanel = document.getElementById('statusPanel');
+  const result = data.lastResult || {};
+  const winnerName = DISPLAY_NAME[result.winner] || result.winner;
+  const iWon = result.winner === mySeat;
+  const myDelta = iWon ? result.winnerDelta : result.loserDelta;
+  const sign = myDelta>=0 ? '+' : '';
+  statusPanel.innerHTML = `
+    <h3 style="color:var(--gold-bright)">${iWon ? 'You went out!' : winnerName+' went out!'}</h3>
+    <p style="opacity:.8;font-size:14px;">You scored ${sign}${myDelta} points this round${iWon ? ' (includes the 100pt bonus for going out first).' : '.'}</p>
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:12px;flex-wrap:wrap;">
+      <button class="btn-gold" id="nextRoundBtn">Deal Next Round</button>
+      <button class="btn-outline" id="backToStartBtn">Back to Start</button>
+    </div>
+  `;
+  wireOnce('nextRoundBtn', ()=>startRound());
+  document.getElementById('backToStartBtn').onclick = localBackToStart;
+}
+
+/* =========================================================================
+   GAME FLOW ACTIONS
+   ========================================================================= */
+async function startRound(){
+  const data = currentGameData;
+  if(data && data.status!=='idle' && data.status!=='roundEnd') return;
+  // Dealer alternates: always whoever didn't deal last round. The very first
+  // round has no prior dealer on record, so whoever clicks Start deals.
+  const dealerSeat = (data && data.lastDealerSeat) ? otherSeat(data.lastDealerSeat) : mySeat;
+  const deck = shuffle(buildDeck());
+  await updateAsync(GAME_PATH, {
+    status:'dealing',
+    dealerSeat: dealerSeat,
+    lastDealerSeat: dealerSeat,
+    dealPhase:'dealer',
+    deck: deck,
+    discard: [],
+    wildRank: null,
+    wildCardDrawn: null,
+    otherCardDrawn: null,
+    hands: {sam:[], zoe:[]},
+    melds: [],
+    mustPlayCard: null,
+    lastResult: null
+  });
+}
+
+async function dealerDraw(){
+  const data = currentGameData;
+  if(data.dealPhase!=='dealer' || mySeat!==data.dealerSeat) return;
+  const deck = data.deck.slice();
+  const wildCard = deck.pop();
+  const rank = parseCard(wildCard).rank;
+  const count = RANK_ORDER[rank];
+  const hand = [wildCard];
+  for(let i=1;i<count;i++) hand.push(deck.pop());
+  await updateAsync(GAME_PATH, {
+    deck: deck,
+    wildRank: rank,
+    wildCardDrawn: wildCard,
+    ['hands/'+data.dealerSeat]: hand,
+    dealPhase: 'other'
+  });
+}
+
+async function otherDraw(){
+  const data = currentGameData;
+  const nonDealer = otherSeat(data.dealerSeat);
+  if(data.dealPhase!=='other' || mySeat!==nonDealer) return;
+  const deck = data.deck.slice();
+  const drawn = deck.pop();
+  const count = RANK_ORDER[parseCard(drawn).rank];
+  const hand = [drawn];
+  for(let i=1;i<count;i++) hand.push(deck.pop());
+  const discardStart = deck.length ? [deck.pop()] : [];
+  await updateAsync(GAME_PATH, {
+    deck: deck,
+    ['hands/'+nonDealer]: hand,
+    otherCardDrawn: drawn,
+    discard: discardStart,
+    dealPhase: 'done',
+    status: 'playing',
+    turn: nonDealer,   // the non-dealer goes first; the dealer goes second
+    subphase: 'draw'
+  });
+}
+
+async function drawFromDeck(){
+  const data = currentGameData;
+  if(data.turn!==mySeat || data.subphase!=='draw') return;
+  let deck = data.deck.slice();
+  let discard = data.discard.slice();
+  if(deck.length===0){
+    if(discard.length<=1) return; // nothing to reshuffle
+    const top = discard.pop();
+    deck = shuffle(discard);
+    discard = [top];
+  }
+  const card = deck.pop();
+  const hand = (data.hands[mySeat]||[]).concat([card]);
+  await updateAsync(GAME_PATH, {
+    deck: deck,
+    discard: discard,
+    ['hands/'+mySeat]: hand,
+    subphase: 'discard'
+  });
+}
+
+async function drawFromDiscardDig(clickedIndex){
+  const data = currentGameData;
+  if(data.turn!==mySeat || data.subphase!=='draw') return;
+  const discard = data.discard.slice();
+  if(clickedIndex<0 || clickedIndex>=discard.length-1) return; // top card uses drawFromDiscard instead
+  const targetCard = discard[clickedIndex];
+  const collateral = discard.slice(clickedIndex); // target card + everything discarded after it
+  const otherCollateral = collateral.filter(c=>c!==targetCard);
+
+  const hand = data.hands[mySeat]||[];
+  const melds = data.melds||[];
+  // you can use your hand AND the other cards you'd be picking up alongside it
+  const helperPool = hand.concat(otherCollateral);
+  if(!canPlayCardNow(targetCard, helperPool, melds, data.wildRank)){
+    await showCantPlayModal(targetCard, data.wildRank);
+    return;
+  }
+
+  const ok = await showDigConfirmModal(targetCard, otherCollateral, data.wildRank);
+  if(!ok) return;
+
+  const remainingDiscard = discard.slice(0, clickedIndex);
+  const newHand = hand.concat(collateral);
+  await updateAsync(GAME_PATH, {
+    discard: remainingDiscard,
+    ['hands/'+mySeat]: newHand,
+    subphase: 'discard',
+    mustPlayCard: targetCard
+  });
+}
+
+async function drawFromDiscard(){
+  const data = currentGameData;
+  if(data.turn!==mySeat || data.subphase!=='draw') return;
+  const discard = data.discard.slice();
+  if(discard.length===0) return;
+  const card = discard.pop();
+  const hand = (data.hands[mySeat]||[]).concat([card]);
+  await updateAsync(GAME_PATH, {
+    discard: discard,
+    ['hands/'+mySeat]: hand,
+    subphase: 'discard'
+  });
+}
+
+async function confirmGroup(){
+  const data = currentGameData;
+  if(data.turn!==mySeat || data.subphase!=='discard') return;
+  const cards = Array.from(selectedCards);
+  const wildRank = data.wildRank;
+  const wilds = cards.filter(c=>parseCard(c).rank===wildRank);
+  if(wilds.length>1){ await showTooManyWildsModal(); return; }
+  const naturals = cards.filter(c=>parseCard(c).rank!==wildRank);
+  const wildCard = wilds[0] || null;
+
+  let meld = await tryBuildSet(naturals, wildCard);
+  if(!meld) meld = await tryBuildRun(naturals, wildCard);
+  if(!meld){ await showInvalidMeldModal(); return; }
+
+  const hand = (data.hands[mySeat]||[]).slice();
+  cards.forEach(c=>{ const i=hand.indexOf(c); if(i>-1) hand.splice(i,1); });
+  const melds = (data.melds||[]).concat([meld]);
+  selectedCards.clear();
+
+  const updates = {['hands/'+mySeat]: hand, melds: melds};
+  if(data.mustPlayCard && !hand.includes(data.mustPlayCard)) updates.mustPlayCard = null;
+  await updateAsync(GAME_PATH, updates);
+  if(hand.length===0) await endRound(mySeat);
+}
+
+async function performLayoff(card, option){
+  const data = currentGameData;
+  if(data.turn!==mySeat || data.subphase!=='discard') return;
+  const hand = (data.hands[mySeat]||[]).slice();
+  const idx = hand.indexOf(card);
+  if(idx===-1) return;
+
+  const melds = (data.melds||[]).map(m=>({...m, slots: m.slots.map(s=>({...s}))}));
+  const meld = melds.find(m=>m.id===option.meldId);
+  if(!meld) return;
+
+  hand.splice(idx,1);
+
+  if(option.kind==='replace-wild'){
+    // Swap your natural card into the wild's slot. Nothing else changes -
+    // you don't get the wild back, you just get to play your card.
+    const oldSlot = meld.slots[option.slotIndex];
+    const newSlot = {card, isWild:false, ownerSeat:mySeat};
+    if(meld.type==='run') newSlot.runValue = oldSlot.runValue; // same position, just swapped
+    meld.slots[option.slotIndex] = newSlot;
+  } else {
+    const newSlot = {card, isWild: option.kind.startsWith('wild'), ownerSeat: mySeat};
+    if(newSlot.isWild) newSlot.standsFor = option.standsFor;
+    if(meld.type==='run') newSlot.runValue = option.runValue;
+    meld.slots.push(newSlot);
+  }
+
+  const updates = {['hands/'+mySeat]: hand, melds: melds};
+  if(data.mustPlayCard && !hand.includes(data.mustPlayCard)) updates.mustPlayCard = null;
+  await updateAsync(GAME_PATH, updates);
+  selectedCards.clear();
+  if(hand.length===0) await endRound(mySeat);
+}
+
+async function performDiscard(card){
+  const data = currentGameData;
+  if(data.turn!==mySeat || data.subphase!=='discard') return;
+  if(data.mustPlayCard){ alert('You must play '+data.mustPlayCard+' before you can discard.'); return; }
+  const hand = (data.hands[mySeat]||[]).slice();
+  const idx = hand.indexOf(card);
+  if(idx===-1) return;
+  hand.splice(idx,1);
+  const discard = (data.discard||[]).concat([card]); // discarded card goes on top of the pile
+
+  if(hand.length===0){
+    // Melded/laid off everything else and discarded the last card - going out.
+    await updateAsync(GAME_PATH, {['hands/'+mySeat]: hand, discard: discard});
+    await endRound(mySeat);
+    selectedCards.clear();
+    return;
+  }
+
+  await updateAsync(GAME_PATH, {
+    ['hands/'+mySeat]: hand,
+    discard: discard,
+    turn: otherSeat(mySeat),   // triggers the next player's turn
+    subphase: 'draw'
+  });
+  selectedCards.clear();
+}
+
+async function endRound(winnerSeat){
+  const data = currentGameData;
+  const loserSeat = otherSeat(winnerSeat);
+  const wildRank = data.wildRank;
+  const melds = data.melds || [];
+
+  function seatDelta(seat, isWinner){
+    let delta = 0;
+    melds.forEach(meld=>{
+      meld.slots.forEach(slot=>{
+        if(slot.ownerSeat===seat) delta += cardPoints(slot.card, wildRank); // + for anything in play
+      });
+    });
+    const handCards = (data.hands && data.hands[seat]) || [];
+    handCards.forEach(c=> delta -= cardPoints(c, wildRank));                 // - for anything still in hand
+    if(isWinner) delta += 100;                                              // bonus for going out first
+    return delta;
+  }
+
+  const winnerDelta = seatDelta(winnerSeat, true);
+  const loserDelta = seatDelta(loserSeat, false);
+  const scores = Object.assign({sam:0,zoe:0}, data.scores);
+  scores[winnerSeat] = (scores[winnerSeat]||0) + winnerDelta;
+  scores[loserSeat] = (scores[loserSeat]||0) + loserDelta;
+
+  const history = (data.history||[]).concat([{
+    n: (data.history ? data.history.length : 0) + 1,
+    winner: winnerSeat,
+    winnerDelta: winnerDelta,
+    loserDelta: loserDelta,
+    samTotal: scores.sam,
+    zoeTotal: scores.zoe,
+    diff: scores.sam - scores.zoe   // positive = Sam ahead, negative = Zoe ahead
+  }]);
+
+  await updateAsync(GAME_PATH, {
+    status: 'roundEnd',
+    scores: scores,               // lifetime tally - never reset
+    history: history,             // full round-by-round log - never reset
+    lastResult: {winner: winnerSeat, loser: loserSeat, winnerDelta: winnerDelta, loserDelta: loserDelta}
+  });
+}
+</script>
+</body>
+</html>
