@@ -129,7 +129,14 @@
   .discard-stack .card{margin-left:-30px;}
   .discard-stack .card:first-child{margin-left:0;}
   .discard-stack .card.top-card{}
+  @keyframes discardDrop{
+    0%{ transform: translateY(-34px) rotate(-10deg) scale(1.05); opacity:.4; }
+    60%{ transform: translateY(3px) rotate(2deg) scale(1); opacity:1; }
+    100%{ transform: translateY(0) rotate(0deg) scale(1); opacity:1; }
+  }
+  .discard-drop-anim{ animation: discardDrop .45s ease-out; }
   .card.must-play{outline:3px solid #ff6b6b;outline-offset:2px;}
+  .card.just-drawn{box-shadow: 0 0 0 3px #ffd94a, 0 3px 6px rgba(0,0,0,.4);}
 
   .recap-row{display:flex;justify-content:center;gap:28px;flex-wrap:wrap;background:rgba(0,0,0,.18);border-radius:12px;padding:10px 14px;}
   .recap-item{display:flex;flex-direction:column;align-items:center;gap:5px;}
@@ -160,6 +167,8 @@
   }
   .card.selected{transform:translateY(-10px);box-shadow:0 0 0 3px #6fd6ff,0 6px 10px rgba(0,0,0,.45);}
   .card.clickable{cursor:pointer;}
+  .card.draggable{cursor:grab; touch-action:none;}
+  .card.dragging{opacity:.65; transform:translateY(-16px) scale(1.06); z-index:30; cursor:grabbing;}
   .card.clickable:hover{transform:translateY(-6px);}
   .card.empty-slot{background:transparent;border:2px dashed rgba(245,241,230,.35);box-shadow:none;}
 
@@ -344,6 +353,7 @@ function genId(){ return 'm_'+Math.random().toString(36).slice(2,10); }
    At most ONE wild per meld, ever - enforced everywhere below.
    ========================================================================= */
 function meldLabel(meld){
+  if(meld.type==='single') return 'Single card';
   return meld.type==='set' ? (meld.rank+' set') : (SUIT_CHAR[meld.suit]+' run');
 }
 function meldRepresentedCard(meld, slot){
@@ -498,6 +508,7 @@ function computeLayoffOptions(card, melds, wildRank){
   const isWild = rank === wildRank;
   const options = [];
   melds.forEach(meld=>{
+    if(meld.type==='single') return; // standalone single-card plays aren't extendable
     if(isWild){
       if(meld.type==='set'){
         wildLayoffOptionsForSet(meld).forEach(s=>
@@ -515,7 +526,7 @@ function computeLayoffOptions(card, melds, wildRank){
       }
       meld.slots.forEach((slot,idx)=>{
         if(slot.isWild && meldRepresentedCard(meld, slot)===card){
-          options.push({meldId:meld.id, kind:'replace-wild', slotIndex:idx, label:`Swap into ${meldLabel(meld)} (take the wild)`});
+          options.push({meldId:meld.id, kind:'replace-wild', slotIndex:idx, label:`Play on its own (matches the wild in ${meldLabel(meld)})`});
         }
       });
     }
@@ -648,6 +659,30 @@ function showDigConfirmModal(targetCard, otherCards, wildRank){
 
 let historyPanelOpen = false;
 
+const ORIGINAL_TITLE = document.title;
+let titleFlashInterval = null;
+let lastKnownMyTurn = false;
+
+function updateTurnTitleFlash(isMyTurnNow){
+  lastKnownMyTurn = isMyTurnNow;
+  const shouldFlash = isMyTurnNow && document.hidden;
+  if(shouldFlash && !titleFlashInterval){
+    let on = false;
+    titleFlashInterval = setInterval(()=>{
+      document.title = on ? ORIGINAL_TITLE : 'Your Turn!';
+      on = !on;
+    }, 1000);
+  } else if(!shouldFlash && titleFlashInterval){
+    clearInterval(titleFlashInterval);
+    titleFlashInterval = null;
+    document.title = ORIGINAL_TITLE;
+  }
+}
+// Re-check as soon as the tab regains focus, so the flashing stops the
+// moment you actually come back to look at it - and starts if you leave
+// mid-turn.
+document.addEventListener('visibilitychange', ()=>updateTurnTitleFlash(lastKnownMyTurn));
+
 function renderHistoryContent(){
   const data = currentGameData || {};
   const history = data.history || [];
@@ -723,6 +758,33 @@ function showInvalidMeldModal(){
   });
 }
 
+function showCantEmptyHandModal(){
+  return new Promise(resolve=>{
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+
+    const title = document.createElement('h3');
+    title.style.cssText = 'color:#ff9b9b;margin-bottom:12px;font-size:18px;';
+    title.textContent = "You need a card left to discard";
+    box.appendChild(title);
+
+    const msg = document.createElement('p');
+    msg.textContent = "You can't play your entire hand in one meld or lay-off \u2014 you always need at least one card left over. Once you're down to exactly one card, it discards automatically to end the round.";
+    box.appendChild(msg);
+
+    const btn = document.createElement('button');
+    btn.className = 'btn-gold';
+    btn.textContent = 'OK';
+    btn.onclick = ()=>{ document.body.removeChild(overlay); resolve(); };
+    box.appendChild(btn);
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  });
+}
+
 function showTooManyWildsModal(){
   return new Promise(resolve=>{
     const overlay = document.createElement('div');
@@ -782,8 +844,9 @@ function showCantPlayModal(targetCard, wildRank){
 }
 
 function sortedHandForDisplay(hand){
-  if(handSortMode==='none') return hand;
-  const copy = hand.slice();
+  const custom = syncCustomOrder(hand);
+  if(handSortMode==='none') return custom.slice();
+  const copy = custom.slice();
   if(handSortMode==='rank'){
     copy.sort((a,b)=>{
       const ra=RANK_ORDER[parseCard(a).rank], rb=RANK_ORDER[parseCard(b).rank];
@@ -800,6 +863,50 @@ function sortedHandForDisplay(hand){
   }
   return copy;
 }
+// Pointer-based drag reorder for one card element. A short movement is
+// still treated as a tap (selects/deselects); crossing the threshold makes
+// it a drag that live-reorders customOrder as you move.
+function attachCardDragHandlers(el, card, canSelect){
+  el.addEventListener('pointerdown', (e)=>{
+    if(e.button!==undefined && e.button!==0) return;
+    dragState = {card, startX:e.clientX, moved:false};
+    try{ el.setPointerCapture(e.pointerId); }catch(err){}
+  });
+
+  el.addEventListener('pointermove', (e)=>{
+    if(!dragState || dragState.card!==card) return;
+    if(!dragState.moved){
+      if(Math.abs(e.clientX - dragState.startX) < 6) return;
+      dragState.moved = true;
+    }
+    const fan = document.getElementById('handFan');
+    const siblings = Array.from(fan.children).filter(x=>x!==el);
+    let targetIdx = 0;
+    for(let i=0;i<siblings.length;i++){
+      const rect = siblings[i].getBoundingClientRect();
+      if(e.clientX > rect.left + rect.width/2) targetIdx = i+1;
+    }
+    const curIdx = customOrder.indexOf(card);
+    if(curIdx===-1 || curIdx===targetIdx) return;
+    customOrder.splice(curIdx,1);
+    customOrder.splice(targetIdx,0,card);
+    renderGame(currentGameData);
+  });
+
+  const endDrag = ()=>{
+    if(!dragState || dragState.card!==card) return;
+    const wasDrag = dragState.moved;
+    dragState = null;
+    if(!wasDrag && canSelect){
+      if(selectedCards.has(card)) selectedCards.delete(card);
+      else selectedCards.add(card);
+    }
+    renderGame(currentGameData);
+  };
+  el.addEventListener('pointerup', endDrag);
+  el.addEventListener('pointercancel', endDrag);
+}
+
 function openSortModal(){
   askChoice('Sort your hand by:', [
     {label:'Number', value:'rank'},
@@ -847,6 +954,17 @@ let currentGameData = null;
 let unsubscribe = null;
 let selectedCards = new Set(); // cards currently picked, before grouping/laying off/discarding
 let handSortMode = 'none';     // 'none' | 'rank' | 'suit' - display only, never touches the DB
+let customOrder = [];          // your dragged arrangement - this IS "original order"
+let dragState = null;          // {card, startX, moved} while actively dragging a card
+
+// Keeps customOrder in sync with your live hand: cards you still hold keep
+// their dragged position, brand-new cards (just drawn/dug) land at the end.
+function syncCustomOrder(hand){
+  const handSet = new Set(hand);
+  customOrder = customOrder.filter(c=>handSet.has(c));
+  hand.forEach(c=>{ if(!customOrder.includes(c)) customOrder.push(c); });
+  return customOrder;
+}
 let actionLock = false;        // prevents double-submitting the same action
 let localActive = false;       // per-device: am I looking at the table or the landing page?
 
@@ -916,6 +1034,10 @@ async function onGameData(data){
 function renderGame(data){
   currentGameData = data;
   if(historyPanelOpen) renderHistoryContent();
+
+  const isMyTurnNow = data.status==='playing' && data.turn===mySeat;
+  updateTurnTitleFlash(isMyTurnNow);
+
   const me = DISPLAY_NAME[mySeat];
   const opp = DISPLAY_NAME[otherSeat(mySeat)];
 
@@ -1017,7 +1139,8 @@ function wireOnce(buttonId, fn){
 
 function renderRecap(data){
   const row = document.getElementById('recapRow');
-  if(!data.wildCardDrawn){ row.style.display='none'; row.innerHTML=''; return; }
+  const pastOpening = (data.turnCount||0) >= 2;
+  if(!data.wildCardDrawn || pastOpening){ row.style.display='none'; row.innerHTML=''; return; }
   row.style.display = 'flex';
   row.innerHTML = '';
 
@@ -1085,11 +1208,15 @@ function renderDealing(data, statusPanel){
   }
 }
 
+let lastSeenDiscardTop = null; // local per-tab tracking, so we only animate genuinely new discards
+
 function renderPiles(data, pilesRow){
   const deckCount = (data.deck||[]).length;
   const discard = data.discard||[];
   const myTurn = data.turn===mySeat;
   const canDraw = myTurn && data.subphase==='draw';
+  const topDiscard = discard.length ? discard[discard.length-1] : null;
+  const isFreshDiscard = lastSeenDiscardTop!==null && topDiscard && topDiscard!==lastSeenDiscardTop;
 
   const deckDiv = document.createElement('div');
   deckDiv.className='pile';
@@ -1115,6 +1242,7 @@ function renderPiles(data, pilesRow){
       const isTop = idx === discard.length-1;
       const el = htmlToEl(cardHTML(card, data.wildRank, canDraw));
       if(isTop) el.classList.add('top-card');
+      if(isTop && isFreshDiscard) el.classList.add('discard-drop-anim');
       if(canDraw){
         el.addEventListener('click', ()=>{
           if(isTop) guarded(drawFromDiscard);
@@ -1127,6 +1255,7 @@ function renderPiles(data, pilesRow){
   wrap.appendChild(stack);
   discardDiv.appendChild(wrap);
   pilesRow.appendChild(discardDiv);
+  lastSeenDiscardTop = topDiscard;
 }
 
 function cardHTML(card, wildRank, clickable, small){
@@ -1177,6 +1306,7 @@ function renderHand(data, handSection){
   const melds = data.melds || [];
   const haveOwnMeld = melds.some(m=>m.starterSeat===mySeat);
   const mustPlay = (data.mustPlayCard && hand.includes(data.mustPlayCard)) ? data.mustPlayCard : null;
+  const justDrawnSet = new Set(data.justDrawn || []);
 
   const handSet = new Set(hand);
   selectedCards.forEach(c=>{ if(!handSet.has(c)) selectedCards.delete(c); });
@@ -1196,14 +1326,23 @@ function renderHand(data, handSection){
         ? 'You need a meld of your own down before you can lay cards off onto any meld \u2014 yours or theirs. Select 3+ cards for your first meld.'
         : 'Melds are laid down for good once played. Select 3+ cards for a new meld, or select 1 card to lay off, swap, or discard.';
 
-  // your hand - click to select
+  // your hand - drag to reorder (only meaningful in "original order" view),
+  // tap/click to select
   const fan = document.getElementById('handFan');
   fan.innerHTML = '';
+  const canDrag = handSortMode==='none';
   sortedHandForDisplay(hand).forEach(c=>{
     const el = htmlToEl(cardHTML(c, wildRank, canAct));
     if(selectedCards.has(c)) el.classList.add('selected');
     if(mustPlay===c) el.classList.add('must-play');
-    if(canAct && c!==mustPlay){ // the pinned card can't be toggled off
+    if(justDrawnSet.has(c)) el.classList.add('just-drawn');
+    if(dragState && dragState.moved && dragState.card===c) el.classList.add('dragging');
+
+    const canSelect = canAct && c!==mustPlay;
+    if(canDrag){
+      el.classList.add('draggable');
+      attachCardDragHandlers(el, c, canSelect);
+    } else if(canSelect){
       el.addEventListener('click', ()=>{
         if(selectedCards.has(c)) selectedCards.delete(c);
         else selectedCards.add(c);
@@ -1220,14 +1359,14 @@ function renderHand(data, handSection){
   const groupBtn = document.createElement('button');
   groupBtn.className='btn-outline';
   groupBtn.textContent='Group Selected (new meld)';
-  groupBtn.disabled = !(canAct && selectedCards.size>=3);
+  groupBtn.disabled = !(canAct && selectedCards.size>=3 && hand.length-selectedCards.size>0);
   groupBtn.onclick = ()=>{
     groupBtn.disabled = true;
     guarded(confirmGroup);
   };
   actionRow.appendChild(groupBtn);
 
-  if(canAct && selectedCards.size===1){
+  if(canAct && selectedCards.size===1 && hand.length>1){
     const selectedCard = Array.from(selectedCards)[0];
     const options = computeLayoffOptions(selectedCard, melds, wildRank);
     options.forEach(opt=>{
@@ -1272,23 +1411,39 @@ function renderHand(data, handSection){
    ROUND END
    ========================================================================= */
 function renderRoundEnd(data){
-  document.getElementById('handSection').style.display='none';
-  const statusPanel = document.getElementById('statusPanel');
   const result = data.lastResult || {};
   const winnerName = DISPLAY_NAME[result.winner] || result.winner;
+  const oppName = DISPLAY_NAME[otherSeat(mySeat)];
   const iWon = result.winner === mySeat;
   const myDelta = iWon ? result.winnerDelta : result.loserDelta;
-  const sign = myDelta>=0 ? '+' : '';
+  const oppDelta = iWon ? result.loserDelta : result.winnerDelta;
+  const mySign = myDelta>=0 ? '+' : '';
+  const oppSign = oppDelta>=0 ? '+' : '';
+  const myHand = (data.hands && data.hands[mySeat]) || [];
+
+  const statusPanel = document.getElementById('statusPanel');
   statusPanel.innerHTML = `
     <h3 style="color:var(--gold-bright)">${iWon ? 'You went out!' : winnerName+' went out!'}</h3>
-    <p style="opacity:.8;font-size:14px;">You scored ${sign}${myDelta} points this round${iWon ? ' (includes the 100pt bonus for going out first).' : '.'}</p>
-    <div style="display:flex;gap:10px;justify-content:center;margin-top:12px;flex-wrap:wrap;">
+    <p style="opacity:.8;font-size:14px;">You scored ${mySign}${myDelta} points this round${iWon ? ' (includes the 100pt bonus for going out first).' : '.'}</p>
+    <p style="opacity:.8;font-size:14px;">${oppName} scored ${oppSign}${oppDelta} points this round${!iWon ? ' (includes their 100pt bonus for going out first).' : '.'}</p>
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap;">
       <button class="btn-gold" id="nextRoundBtn">Deal Next Round</button>
       <button class="btn-outline" id="backToStartBtn">Back to Start</button>
     </div>
   `;
   wireOnce('nextRoundBtn', ()=>startRound());
   document.getElementById('backToStartBtn').onclick = localBackToStart;
+
+  // Show what was left in your hand, positioned below your in-play cards
+  // (myMeldsRow sits right above handSection in the layout already).
+  const handSection = document.getElementById('handSection');
+  handSection.style.display = 'flex';
+  document.getElementById('statusText').textContent = myHand.length ? 'Cards left in your hand' : 'Your hand was empty \u2014 nice.';
+  document.getElementById('hintText').textContent = '';
+  const fan = document.getElementById('handFan');
+  fan.innerHTML = '';
+  myHand.forEach(c=>fan.appendChild(htmlToEl(cardHTML(c, data.wildRank, false))));
+  document.getElementById('actionRow').innerHTML = '';
 }
 
 /* =========================================================================
@@ -1314,6 +1469,8 @@ async function startRound(){
     hands: {sam:[], zoe:[]},
     melds: [],
     mustPlayCard: null,
+    justDrawn: null,
+    turnCount: 0,
     lastResult: null
   });
 }
@@ -1375,7 +1532,8 @@ async function drawFromDeck(){
     deck: deck,
     discard: discard,
     ['hands/'+mySeat]: hand,
-    subphase: 'discard'
+    subphase: 'discard',
+    justDrawn: [card]
   });
 }
 
@@ -1406,7 +1564,8 @@ async function drawFromDiscardDig(clickedIndex){
     discard: remainingDiscard,
     ['hands/'+mySeat]: newHand,
     subphase: 'discard',
-    mustPlayCard: targetCard
+    mustPlayCard: targetCard,
+    justDrawn: collateral
   });
 }
 
@@ -1420,14 +1579,40 @@ async function drawFromDiscard(){
   await updateAsync(GAME_PATH, {
     discard: discard,
     ['hands/'+mySeat]: hand,
-    subphase: 'discard'
+    subphase: 'discard',
+    justDrawn: [card]
   });
+}
+
+// Shared finalize step for confirmGroup/performLayoff. You can never empty
+// your hand directly via a meld or layoff - if that would leave you with
+// exactly one card, that last card is discarded automatically (you can't
+// choose to sit on it), which ends the round. Otherwise it's a normal update.
+async function finalizeHandChange(data, hand, extraUpdates){
+  const updates = Object.assign({['hands/'+mySeat]: hand}, extraUpdates);
+  if(hand.length===1){
+    const lastCard = hand[0];
+    updates['hands/'+mySeat] = [];
+    updates.discard = (data.discard||[]).concat([lastCard]);
+    updates.mustPlayCard = null;
+    updates.justDrawn = null;
+    await updateAsync(GAME_PATH, updates);
+    await endRound(mySeat);
+    return;
+  }
+  if(data.mustPlayCard && !hand.includes(data.mustPlayCard)) updates.mustPlayCard = null;
+  await updateAsync(GAME_PATH, updates);
 }
 
 async function confirmGroup(){
   const data = currentGameData;
   if(data.turn!==mySeat || data.subphase!=='discard') return;
   const cards = Array.from(selectedCards);
+  const hand0 = data.hands[mySeat]||[];
+  if(hand0.length - cards.length === 0){
+    await showCantEmptyHandModal();
+    return;
+  }
   const wildRank = data.wildRank;
   const wilds = cards.filter(c=>parseCard(c).rank===wildRank);
   if(wilds.length>1){ await showTooManyWildsModal(); return; }
@@ -1438,49 +1623,50 @@ async function confirmGroup(){
   if(!meld) meld = await tryBuildRun(naturals, wildCard);
   if(!meld){ await showInvalidMeldModal(); return; }
 
-  const hand = (data.hands[mySeat]||[]).slice();
+  const hand = hand0.slice();
   cards.forEach(c=>{ const i=hand.indexOf(c); if(i>-1) hand.splice(i,1); });
   const melds = (data.melds||[]).concat([meld]);
   selectedCards.clear();
 
-  const updates = {['hands/'+mySeat]: hand, melds: melds};
-  if(data.mustPlayCard && !hand.includes(data.mustPlayCard)) updates.mustPlayCard = null;
-  await updateAsync(GAME_PATH, updates);
-  if(hand.length===0) await endRound(mySeat);
+  await finalizeHandChange(data, hand, {melds: melds});
 }
 
 async function performLayoff(card, option){
   const data = currentGameData;
   if(data.turn!==mySeat || data.subphase!=='discard') return;
-  const hand = (data.hands[mySeat]||[]).slice();
-  const idx = hand.indexOf(card);
+  const hand0 = data.hands[mySeat]||[];
+  const idx = hand0.indexOf(card);
   if(idx===-1) return;
+  if(hand0.length - 1 === 0){
+    await showCantEmptyHandModal();
+    return;
+  }
 
   const melds = (data.melds||[]).map(m=>({...m, slots: m.slots.map(s=>({...s}))}));
-  const meld = melds.find(m=>m.id===option.meldId);
-  if(!meld) return;
-
+  const hand = hand0.slice();
   hand.splice(idx,1);
 
   if(option.kind==='replace-wild'){
-    // Swap your natural card into the wild's slot. Nothing else changes -
-    // you don't get the wild back, you just get to play your card.
-    const oldSlot = meld.slots[option.slotIndex];
-    const newSlot = {card, isWild:false, ownerSeat:mySeat};
-    if(meld.type==='run') newSlot.runValue = oldSlot.runValue; // same position, just swapped
-    meld.slots[option.slotIndex] = newSlot;
+    // The wild stays exactly where it is - it's never touched. Your card
+    // doesn't merge into that meld; it becomes its own standalone in-play
+    // card sitting in front of you.
+    melds.push({
+      id: genId(),
+      type: 'single',
+      starterSeat: mySeat,
+      slots: [{card, isWild:false, ownerSeat:mySeat}]
+    });
   } else {
+    const meld = melds.find(m=>m.id===option.meldId);
+    if(!meld) return;
     const newSlot = {card, isWild: option.kind.startsWith('wild'), ownerSeat: mySeat};
     if(newSlot.isWild) newSlot.standsFor = option.standsFor;
     if(meld.type==='run') newSlot.runValue = option.runValue;
     meld.slots.push(newSlot);
   }
 
-  const updates = {['hands/'+mySeat]: hand, melds: melds};
-  if(data.mustPlayCard && !hand.includes(data.mustPlayCard)) updates.mustPlayCard = null;
-  await updateAsync(GAME_PATH, updates);
   selectedCards.clear();
-  if(hand.length===0) await endRound(mySeat);
+  await finalizeHandChange(data, hand, {melds: melds});
 }
 
 async function performDiscard(card){
@@ -1495,7 +1681,7 @@ async function performDiscard(card){
 
   if(hand.length===0){
     // Melded/laid off everything else and discarded the last card - going out.
-    await updateAsync(GAME_PATH, {['hands/'+mySeat]: hand, discard: discard});
+    await updateAsync(GAME_PATH, {['hands/'+mySeat]: hand, discard: discard, justDrawn: null, turnCount: (data.turnCount||0)+1});
     await endRound(mySeat);
     selectedCards.clear();
     return;
@@ -1505,7 +1691,9 @@ async function performDiscard(card){
     ['hands/'+mySeat]: hand,
     discard: discard,
     turn: otherSeat(mySeat),   // triggers the next player's turn
-    subphase: 'draw'
+    subphase: 'draw',
+    justDrawn: null,
+    turnCount: (data.turnCount||0)+1
   });
   selectedCards.clear();
 }
