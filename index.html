@@ -130,11 +130,12 @@
   .discard-stack .card:first-child{margin-left:0;}
   .discard-stack .card.top-card{}
   @keyframes discardDrop{
-    0%{ transform: translateY(-34px) rotate(-10deg) scale(1.05); opacity:.4; }
-    60%{ transform: translateY(3px) rotate(2deg) scale(1); opacity:1; }
-    100%{ transform: translateY(0) rotate(0deg) scale(1); opacity:1; }
+    0%{ transform: translateY(-90px) translateX(24px) rotate(-22deg) scale(1.2); opacity:0; }
+    50%{ transform: translateY(8px) translateX(-6px) rotate(7deg) scale(1.08); opacity:1; }
+    72%{ transform: translateY(-4px) translateX(2px) rotate(-3deg) scale(.97); }
+    100%{ transform: translateY(0) translateX(0) rotate(0deg) scale(1); opacity:1; }
   }
-  .discard-drop-anim{ animation: discardDrop .45s ease-out; }
+  .discard-drop-anim{ animation: discardDrop .65s cubic-bezier(.34,1.56,.64,1); }
   .card.must-play{outline:3px solid #ff6b6b;outline-offset:2px;}
   .card.just-drawn{box-shadow: 0 0 0 3px #ffd94a, 0 3px 6px rgba(0,0,0,.4);}
 
@@ -167,8 +168,8 @@
   }
   .card.selected{transform:translateY(-10px);box-shadow:0 0 0 3px #6fd6ff,0 6px 10px rgba(0,0,0,.45);}
   .card.clickable{cursor:pointer;}
-  .card.draggable{cursor:grab; touch-action:none;}
-  .card.dragging{opacity:.65; transform:translateY(-16px) scale(1.06); z-index:30; cursor:grabbing;}
+  .card.draggable{cursor:grab; touch-action:none; transition: transform .15s ease, box-shadow .15s ease;}
+  .card.dragging{transform:translateY(-22px) scale(1.08); z-index:30; cursor:grabbing; box-shadow:0 16px 24px rgba(0,0,0,.55);}
   .card.clickable:hover{transform:translateY(-6px);}
   .card.empty-slot{background:transparent;border:2px dashed rgba(245,241,230,.35);box-shadow:none;}
 
@@ -353,14 +354,28 @@ function genId(){ return 'm_'+Math.random().toString(36).slice(2,10); }
    At most ONE wild per meld, ever - enforced everywhere below.
    ========================================================================= */
 function meldLabel(meld){
-  if(meld.type==='single') return 'Single card';
+  if(meld.type==='single') return meld.label || 'Single card';
   return meld.type==='set' ? (meld.rank+' set') : (SUIT_CHAR[meld.suit]+' run');
 }
-function meldRepresentedCard(meld, slot){
-  if(!slot.isWild) return slot.card;
-  return meld.type==='run' ? (slot.standsFor+meld.suit) : (meld.rank+slot.standsFor);
+// A wild slot always carries the exact card it represents (impliedCard),
+// computed once when it's placed - no need to re-derive it from the meld.
+function meldRepresentedCard(slot){
+  return slot.isWild ? slot.impliedCard : slot.card;
 }
-function meldHasWild(meld){ return meld.slots.some(s=>s.isWild); }
+// Combines a meld's own slots with any standalone single-card extensions
+// that were played onto it (by either player) - used for eligibility checks
+// so the run/set's real occupied range and used suits are always accurate,
+// even though extensions render as separate cards.
+function combinedSlots(meld, allMelds){
+  let slots = meld.slots.slice();
+  (allMelds||[]).forEach(m=>{
+    if(m.type==='single' && m.extendsMeldId===meld.id) slots = slots.concat(m.slots);
+  });
+  return slots;
+}
+function meldHasWild(meld, allMelds){
+  return combinedSlots(meld, allMelds).some(s=>s.isWild);
+}
 // Every run slot carries an explicit resolved runValue (1-14) set at the moment
 // it's placed. Aces are the only rank with two possible values (1 or 14); once
 // placed, a slot's value is fixed - this is what makes "no wrap" automatic,
@@ -387,7 +402,7 @@ async function tryBuildSet(naturals, wildCard){
     else standsFor = await askChoice('Which suit is your wild standing in for?',
       available.map(s=>({label:SUIT_CHAR[s]+' '+s, value:s})));
     if(!standsFor) return null; // cancelled
-    slots.push({card:wildCard, isWild:true, standsFor, ownerSeat:mySeat});
+    slots.push({card:wildCard, isWild:true, standsFor, ownerSeat:mySeat, impliedCard: rank+standsFor});
   }
   return {id:genId(), type:'set', rank, starterSeat:mySeat, slots};
 }
@@ -449,7 +464,8 @@ async function buildRunFromValues(naturals, wildCard, valueMap){
       else if(canAfter) standsForVal = max+1;
       else return null;
     }
-    slots.push({card:wildCard, isWild:true, standsFor:RANK_BY_VALUE[standsForVal], ownerSeat:mySeat, runValue:standsForVal});
+    const wildRankStr = RANK_BY_VALUE[standsForVal];
+    slots.push({card:wildCard, isWild:true, standsFor:wildRankStr, ownerSeat:mySeat, runValue:standsForVal, impliedCard: wildRankStr+suit});
   } else {
     if(span !== naturals.length) return null; // must be fully contiguous with no wild
   }
@@ -458,20 +474,21 @@ async function buildRunFromValues(naturals, wildCard, valueMap){
 }
 
 // ---- laying a single card onto an existing meld ----
-function canLayOffNaturalOnSet(meld, card){
+function canLayOffNaturalOnSet(meld, card, allMelds){
   const {rank, suit} = parseCard(card);
   if(rank !== meld.rank) return false;
-  if(meld.slots.length>=4) return false;
-  const used = meld.slots.map(s=> s.isWild ? s.standsFor : parseCard(s.card).suit);
+  const slots = combinedSlots(meld, allMelds);
+  if(slots.length>=4) return false;
+  const used = slots.map(s=> s.isWild ? s.standsFor : parseCard(s.card).suit);
   return !used.includes(suit);
 }
 // Returns the resolved numeric value the card would take on if laid onto this
 // run, or null if it doesn't fit. An Ace resolves to whichever end (1 or 14)
 // is actually open - never both, so this can never create a wrap-around.
-function layoffValueForRun(meld, card){
+function layoffValueForRun(meld, card, allMelds){
   const {rank, suit} = parseCard(card);
   if(suit !== meld.suit) return null;
-  const vals = meld.slots.map(s=>s.runValue);
+  const vals = combinedSlots(meld, allMelds).map(s=>s.runValue);
   const min = Math.min(...vals), max = Math.max(...vals);
   if(rank==='A'){
     if(min-1===1) return 1;
@@ -482,14 +499,16 @@ function layoffValueForRun(meld, card){
   if(v===min-1 || v===max+1) return v;
   return null;
 }
-function wildLayoffOptionsForSet(meld){
-  if(meld.type!=='set' || meldHasWild(meld) || meld.slots.length>=4) return [];
-  const used = meld.slots.map(s=>parseCard(s.card).suit);
+function wildLayoffOptionsForSet(meld, allMelds){
+  if(meld.type!=='set' || meldHasWild(meld, allMelds)) return [];
+  const slots = combinedSlots(meld, allMelds);
+  if(slots.length>=4) return [];
+  const used = slots.map(s=>parseCard(s.card).suit);
   return SUITS.filter(s=>!used.includes(s));
 }
-function wildLayoffOptionsForRun(meld){
-  if(meld.type!=='run' || meldHasWild(meld)) return [];
-  const vals = meld.slots.map(s=>s.runValue);
+function wildLayoffOptionsForRun(meld, allMelds){
+  if(meld.type!=='run' || meldHasWild(meld, allMelds)) return [];
+  const vals = combinedSlots(meld, allMelds).map(s=>s.runValue);
   const min = Math.min(...vals), max = Math.max(...vals);
   const opts = [];
   if(min-1>=1) opts.push(min-1);
@@ -508,27 +527,32 @@ function computeLayoffOptions(card, melds, wildRank){
   const isWild = rank === wildRank;
   const options = [];
   melds.forEach(meld=>{
-    if(meld.type==='single') return; // standalone single-card plays aren't extendable
+    // A wild might be sitting in the meld itself OR in a standalone
+    // extension of it - check every slot of every meld for a match.
+    if(!isWild){
+      meld.slots.forEach((slot,idx)=>{
+        if(slot.isWild && meldRepresentedCard(slot)===card){
+          options.push({meldId:meld.id, kind:'replace-wild', slotIndex:idx, label:`Play on its own (matches a wild in play)`});
+        }
+      });
+    }
+    if(meld.type==='single') return; // extensions aren't further extendable
+
     if(isWild){
       if(meld.type==='set'){
-        wildLayoffOptionsForSet(meld).forEach(s=>
+        wildLayoffOptionsForSet(meld, melds).forEach(s=>
           options.push({meldId:meld.id, kind:'wild-set', standsFor:s, label:`Lay off on ${meldLabel(meld)} as ${SUIT_CHAR[s]}`}));
       } else {
-        wildLayoffOptionsForRun(meld).forEach(v=>
+        wildLayoffOptionsForRun(meld, melds).forEach(v=>
           options.push({meldId:meld.id, kind:'wild-run', standsFor:RANK_BY_VALUE[v], runValue:v, label:`Lay off on ${meldLabel(meld)} as ${RANK_BY_VALUE[v]}`}));
       }
     } else {
-      if(meld.type==='set' && canLayOffNaturalOnSet(meld, card))
+      if(meld.type==='set' && canLayOffNaturalOnSet(meld, card, melds))
         options.push({meldId:meld.id, kind:'natural-set', label:`Lay off on ${meldLabel(meld)}`});
       if(meld.type==='run'){
-        const fit = layoffValueForRun(meld, card);
+        const fit = layoffValueForRun(meld, card, melds);
         if(fit!==null) options.push({meldId:meld.id, kind:'natural-run', runValue:fit, label:`Lay off on ${meldLabel(meld)}`});
       }
-      meld.slots.forEach((slot,idx)=>{
-        if(slot.isWild && meldRepresentedCard(meld, slot)===card){
-          options.push({meldId:meld.id, kind:'replace-wild', slotIndex:idx, label:`Play on its own (matches the wild in ${meldLabel(meld)})`});
-        }
-      });
     }
   });
   return options;
@@ -844,76 +868,133 @@ function showCantPlayModal(targetCard, wildRank){
 }
 
 function sortedHandForDisplay(hand){
-  const custom = syncCustomOrder(hand);
-  if(handSortMode==='none') return custom.slice();
-  const copy = custom.slice();
-  if(handSortMode==='rank'){
-    copy.sort((a,b)=>{
-      const ra=RANK_ORDER[parseCard(a).rank], rb=RANK_ORDER[parseCard(b).rank];
-      if(ra!==rb) return ra-rb;
-      return parseCard(a).suit.localeCompare(parseCard(b).suit);
-    });
-  } else if(handSortMode==='suit'){
-    const suitOrder = {S:0,H:1,D:2,C:3};
-    copy.sort((a,b)=>{
-      const sa=suitOrder[parseCard(a).suit], sb=suitOrder[parseCard(b).suit];
-      if(sa!==sb) return sa-sb;
-      return RANK_ORDER[parseCard(a).rank]-RANK_ORDER[parseCard(b).rank];
-    });
-  }
-  return copy;
+  return syncCustomOrder(hand).slice();
 }
+
+// FLIP animation: record each card's current screen position, let the
+// caller rebuild the fan however it likes, then smoothly animate every
+// surviving card from its old spot to its new one.
+function animateHandFan(rebuildFn, bouncy){
+  const fan = document.getElementById('handFan');
+  const firstRects = {};
+  Array.from(fan.children).forEach(el=>{
+    if(el.dataset.card) firstRects[el.dataset.card] = el.getBoundingClientRect();
+  });
+
+  rebuildFn();
+
+  const easing = bouncy ? 'cubic-bezier(.34,1.56,.64,1)' : 'cubic-bezier(.2,.8,.2,1)';
+  const duration = bouncy ? '.3s' : '.22s';
+
+  Array.from(fan.children).forEach(el=>{
+    const card = el.dataset.card;
+    const first = firstRects[card];
+    if(!first) return; // brand new card - just pops in naturally
+    const last = el.getBoundingClientRect();
+    const dx = first.left - last.left;
+    const dy = first.top - last.top;
+    if(Math.abs(dx)<1 && Math.abs(dy)<1) return;
+    el.style.transition = 'none';
+    el.style.transform = `translate(${dx}px, ${dy}px)`;
+    requestAnimationFrame(()=>{
+      el.style.transition = `transform ${duration} ${easing}`;
+      el.style.transform = '';
+    });
+  });
+}
+
 // Pointer-based drag reorder for one card element. A short movement is
 // still treated as a tap (selects/deselects); crossing the threshold makes
-// it a drag that live-reorders customOrder as you move.
+// it a drag that live-reorders customOrder as you move. Always available,
+// regardless of whose turn it is - organizing your hand is never blocked.
+//
+// Tracking happens on `document`, not the card element itself, because the
+// element gets destroyed and recreated on every reorder (the whole fan
+// rebuilds) - element-scoped pointer capture would silently die after the
+// first move. Document-level listeners keep following your pointer no
+// matter how many times the underlying cards get rebuilt.
 function attachCardDragHandlers(el, card, canSelect){
   el.addEventListener('pointerdown', (e)=>{
     if(e.button!==undefined && e.button!==0) return;
-    dragState = {card, startX:e.clientX, moved:false};
-    try{ el.setPointerCapture(e.pointerId); }catch(err){}
-  });
+    dragState = {card, startX:e.clientX, moved:false, lastClientX:e.clientX, rafScheduled:false};
 
-  el.addEventListener('pointermove', (e)=>{
-    if(!dragState || dragState.card!==card) return;
-    if(!dragState.moved){
-      if(Math.abs(e.clientX - dragState.startX) < 6) return;
-      dragState.moved = true;
-    }
-    const fan = document.getElementById('handFan');
-    const siblings = Array.from(fan.children).filter(x=>x!==el);
-    let targetIdx = 0;
-    for(let i=0;i<siblings.length;i++){
-      const rect = siblings[i].getBoundingClientRect();
-      if(e.clientX > rect.left + rect.width/2) targetIdx = i+1;
-    }
-    const curIdx = customOrder.indexOf(card);
-    if(curIdx===-1 || curIdx===targetIdx) return;
-    customOrder.splice(curIdx,1);
-    customOrder.splice(targetIdx,0,card);
-    renderGame(currentGameData);
-  });
+    const onMove = (ev)=>{
+      if(!dragState || dragState.card!==card) return;
+      dragState.lastClientX = ev.clientX;
+      if(!dragState.moved){
+        if(Math.abs(ev.clientX - dragState.startX) < 6) return;
+        dragState.moved = true;
+        renderGame(currentGameData); // lift immediately, don't wait for the first reorder
+      }
+      if(dragState.rafScheduled) return;
+      dragState.rafScheduled = true;
+      requestAnimationFrame(()=>{
+        if(!dragState || dragState.card!==card) return;
+        dragState.rafScheduled = false;
+        const fan = document.getElementById('handFan');
+        if(!fan) return;
+        const currentEl = Array.from(fan.children).find(x=>x.dataset.card===card);
+        if(!currentEl) return;
+        const siblings = Array.from(fan.children).filter(x=>x!==currentEl);
+        let targetIdx = 0;
+        for(let i=0;i<siblings.length;i++){
+          const rect = siblings[i].getBoundingClientRect();
+          if(dragState.lastClientX > rect.left + rect.width/2) targetIdx = i+1;
+        }
+        const curIdx = customOrder.indexOf(card);
+        if(curIdx===-1 || curIdx===targetIdx) return;
+        customOrder.splice(curIdx,1);
+        customOrder.splice(targetIdx,0,card);
+        animateHandFan(()=>renderGame(currentGameData));
+      });
+    };
 
-  const endDrag = ()=>{
-    if(!dragState || dragState.card!==card) return;
-    const wasDrag = dragState.moved;
-    dragState = null;
-    if(!wasDrag && canSelect){
-      if(selectedCards.has(card)) selectedCards.delete(card);
-      else selectedCards.add(card);
-    }
-    renderGame(currentGameData);
-  };
-  el.addEventListener('pointerup', endDrag);
-  el.addEventListener('pointercancel', endDrag);
+    const onUp = ()=>{
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+      if(!dragState || dragState.card!==card) return;
+      const wasDrag = dragState.moved;
+      dragState = null;
+      if(!wasDrag && canSelect){
+        if(selectedCards.has(card)) selectedCards.delete(card);
+        else selectedCards.add(card);
+      }
+      // A little bounce as it clicks into its final spot.
+      animateHandFan(()=>renderGame(currentGameData), wasDrag);
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+  });
 }
 
+// The sort buttons are one-time rearrange actions, not a persistent mode -
+// they bake a fresh order into customOrder, which you can then drag from.
 function openSortModal(){
-  askChoice('Sort your hand by:', [
+  askChoice('Arrange your hand by:', [
     {label:'Number', value:'rank'},
-    {label:'Suit, then Number', value:'suit'},
-    {label:'Original order', value:'none'}
+    {label:'Suit, then Number', value:'suit'}
   ]).then(choice=>{
-    if(choice){ handSortMode = choice; renderGame(currentGameData); }
+    if(!choice) return;
+    const arranged = customOrder.slice();
+    if(choice==='rank'){
+      arranged.sort((a,b)=>{
+        const ra=RANK_ORDER[parseCard(a).rank], rb=RANK_ORDER[parseCard(b).rank];
+        if(ra!==rb) return ra-rb;
+        return parseCard(a).suit.localeCompare(parseCard(b).suit);
+      });
+    } else {
+      const suitOrder = {S:0,H:1,D:2,C:3};
+      arranged.sort((a,b)=>{
+        const sa=suitOrder[parseCard(a).suit], sb=suitOrder[parseCard(b).suit];
+        if(sa!==sb) return sa-sb;
+        return RANK_ORDER[parseCard(a).rank]-RANK_ORDER[parseCard(b).rank];
+      });
+    }
+    customOrder = arranged;
+    animateHandFan(()=>renderGame(currentGameData));
   });
 }
 
@@ -953,8 +1034,7 @@ let mySeat = null;             // 'sam' or 'zoe', fixed from the URL for this wh
 let currentGameData = null;
 let unsubscribe = null;
 let selectedCards = new Set(); // cards currently picked, before grouping/laying off/discarding
-let handSortMode = 'none';     // 'none' | 'rank' | 'suit' - display only, never touches the DB
-let customOrder = [];          // your dragged arrangement - this IS "original order"
+let customOrder = [];          // your dragged arrangement - always the current hand order
 let dragState = null;          // {card, startX, moved} while actively dragging a card
 
 // Keeps customOrder in sync with your live hand: cards you still hold keep
@@ -1326,29 +1406,20 @@ function renderHand(data, handSection){
         ? 'You need a meld of your own down before you can lay cards off onto any meld \u2014 yours or theirs. Select 3+ cards for your first meld.'
         : 'Melds are laid down for good once played. Select 3+ cards for a new meld, or select 1 card to lay off, swap, or discard.';
 
-  // your hand - drag to reorder (only meaningful in "original order" view),
-  // tap/click to select
+  // your hand - always draggable to reorder, tap/click to select
   const fan = document.getElementById('handFan');
   fan.innerHTML = '';
-  const canDrag = handSortMode==='none';
   sortedHandForDisplay(hand).forEach(c=>{
     const el = htmlToEl(cardHTML(c, wildRank, canAct));
+    el.dataset.card = c;
     if(selectedCards.has(c)) el.classList.add('selected');
     if(mustPlay===c) el.classList.add('must-play');
     if(justDrawnSet.has(c)) el.classList.add('just-drawn');
     if(dragState && dragState.moved && dragState.card===c) el.classList.add('dragging');
 
     const canSelect = canAct && c!==mustPlay;
-    if(canDrag){
-      el.classList.add('draggable');
-      attachCardDragHandlers(el, c, canSelect);
-    } else if(canSelect){
-      el.addEventListener('click', ()=>{
-        if(selectedCards.has(c)) selectedCards.delete(c);
-        else selectedCards.add(c);
-        renderGame(currentGameData);
-      });
-    }
+    el.classList.add('draggable');
+    attachCardDragHandlers(el, c, canSelect);
     fan.appendChild(el);
   });
 
@@ -1650,19 +1721,41 @@ async function performLayoff(card, option){
     // The wild stays exactly where it is - it's never touched. Your card
     // doesn't merge into that meld; it becomes its own standalone in-play
     // card sitting in front of you.
+    const targetMeld = melds.find(m=>m.id===option.meldId);
     melds.push({
       id: genId(),
       type: 'single',
       starterSeat: mySeat,
+      extendsMeldId: option.meldId,
+      label: targetMeld ? ('Matches wild in '+meldLabel(targetMeld)) : 'Matches a wild',
       slots: [{card, isWild:false, ownerSeat:mySeat}]
     });
   } else {
     const meld = melds.find(m=>m.id===option.meldId);
     if(!meld) return;
     const newSlot = {card, isWild: option.kind.startsWith('wild'), ownerSeat: mySeat};
-    if(newSlot.isWild) newSlot.standsFor = option.standsFor;
+    if(newSlot.isWild){
+      newSlot.standsFor = option.standsFor;
+      newSlot.impliedCard = meld.type==='set' ? (meld.rank+option.standsFor) : (option.standsFor+meld.suit);
+    }
     if(meld.type==='run') newSlot.runValue = option.runValue;
-    meld.slots.push(newSlot);
+
+    if(meld.starterSeat === mySeat){
+      // extending a meld you started yourself - merges right into it
+      meld.slots.push(newSlot);
+    } else {
+      // extending someone else's meld - it still counts toward that meld
+      // (occupies the value/suit for future lay-off checks), but displays
+      // as your own standalone card in front of you, not merged into theirs
+      melds.push({
+        id: genId(),
+        type: 'single',
+        starterSeat: mySeat,
+        extendsMeldId: meld.id,
+        label: 'Extends '+meldLabel(meld),
+        slots: [newSlot]
+      });
+    }
   }
 
   selectedCards.clear();
