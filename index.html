@@ -57,7 +57,7 @@
   .btn-outline:not(:disabled):hover{border-color:var(--gold-bright);color:var(--gold-bright);}
 
   #layoutRow{display:flex;flex-direction:row;align-items:flex-start;justify-content:center;gap:0;width:100%;}
-  #app{width:100%;max-width:1180px;flex-shrink:1;min-width:0;}
+  #app{width:100%;max-width:1420px;flex-shrink:1;min-width:0;}
 
   #historyPanel{
     width:0;
@@ -97,10 +97,10 @@
     background:radial-gradient(ellipse at center, var(--felt-light) 0%, var(--felt) 70%);
     border:2px solid rgba(201,162,39,.3);
     border-radius:20px;
-    padding:18px 24px;
+    padding:14px 22px;
     display:flex;
     flex-direction:column;
-    gap:10px;
+    gap:8px;
   }
   .opp-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;}
   .opp-info{display:flex;align-items:center;gap:10px;}
@@ -337,12 +337,27 @@ function parseCard(card){
   const rank = card.slice(0,-1);
   return {rank,suit};
 }
-function cardPoints(card, wildRank){
+function baseCardValue(card){
   const {rank} = parseCard(card);
-  if(wildRank && rank === wildRank) return 100;
   if(rank === 'A') return 100;
   if(['10','J','Q','K'].includes(rank)) return 10;
   return 5;
+}
+// For UNPLAYED cards still sitting in hand at round end - any card of the
+// wild rank is costly to be caught holding, regardless of how it could have
+// been used, since it was never actually played.
+function cardPoints(card, wildRank){
+  const {rank} = parseCard(card);
+  if(wildRank && rank === wildRank) return 100;
+  return baseCardValue(card);
+}
+// For a MELDED slot - only counts as a wild (100pts) if it was actually
+// played as a wild substitute. A wild-ranked card played in its own true
+// rank+suit (e.g. the 2 of hearts sitting naturally in a 2-3-4 hearts run
+// when 2s are wild) scores its ordinary value instead.
+function slotPoints(slot){
+  if(slot.isWild) return 100;
+  return baseCardValue(slot.card);
 }
 function genId(){ return 'm_'+Math.random().toString(36).slice(2,10); }
 
@@ -517,19 +532,22 @@ function wildLayoffOptionsForRun(meld, allMelds){
 }
 
 // Every way `card` (from my hand) could be played onto existing melds.
-function computeLayoffOptions(card, melds, wildRank){
+// ignoreOwnMeldGate lets feasibility checks (e.g. "could I dig for this")
+// evaluate whether a card WOULD fit if the player had a meld down, without
+// actually allowing the play right now.
+function computeLayoffOptions(card, melds, wildRank, ignoreOwnMeldGate){
   // You can't add to any meld - yours or your opponent's - until you've
   // put down at least one meld of your own first.
-  const haveOwnMeld = melds.some(m=>m.starterSeat===mySeat);
+  const haveOwnMeld = ignoreOwnMeldGate || melds.some(m=>m.starterSeat===mySeat);
   if(!haveOwnMeld) return [];
 
   const {rank} = parseCard(card);
-  const isWild = rank === wildRank;
+  const isWildRankCard = rank === wildRank;
   const options = [];
   melds.forEach(meld=>{
     // A wild might be sitting in the meld itself OR in a standalone
     // extension of it - check every slot of every meld for a match.
-    if(!isWild){
+    if(!isWildRankCard){
       meld.slots.forEach((slot,idx)=>{
         if(slot.isWild && meldRepresentedCard(slot)===card){
           options.push({meldId:meld.id, kind:'replace-wild', slotIndex:idx, label:`Play on its own (matches a wild in play)`});
@@ -538,31 +556,132 @@ function computeLayoffOptions(card, melds, wildRank){
     }
     if(meld.type==='single') return; // extensions aren't further extendable
 
-    if(isWild){
+    // Try it as a natural fit first, regardless of whether this card's rank
+    // happens to be the wild rank - playing it in its own true identity
+    // never counts as using the wild.
+    let naturalFit = false;
+    if(meld.type==='set' && canLayOffNaturalOnSet(meld, card, melds)){
+      options.push({meldId:meld.id, kind:'natural-set', label:`Lay off on ${meldLabel(meld)}`});
+      naturalFit = true;
+    }
+    if(meld.type==='run'){
+      const fit = layoffValueForRun(meld, card, melds);
+      if(fit!==null){
+        options.push({meldId:meld.id, kind:'natural-run', runValue:fit, label:`Lay off on ${meldLabel(meld)}`});
+        naturalFit = true;
+      }
+    }
+
+    // Only offer the true wild-substitute path here if it genuinely can't
+    // fit naturally on this meld, and it's actually a wild-rank card.
+    if(!naturalFit && isWildRankCard){
       if(meld.type==='set'){
         wildLayoffOptionsForSet(meld, melds).forEach(s=>
-          options.push({meldId:meld.id, kind:'wild-set', standsFor:s, label:`Lay off on ${meldLabel(meld)} as ${SUIT_CHAR[s]}`}));
+          options.push({meldId:meld.id, kind:'wild-set', standsFor:s, label:`Lay off on ${meldLabel(meld)} as ${SUIT_CHAR[s]} (wild)`}));
       } else {
         wildLayoffOptionsForRun(meld, melds).forEach(v=>
-          options.push({meldId:meld.id, kind:'wild-run', standsFor:RANK_BY_VALUE[v], runValue:v, label:`Lay off on ${meldLabel(meld)} as ${RANK_BY_VALUE[v]}`}));
-      }
-    } else {
-      if(meld.type==='set' && canLayOffNaturalOnSet(meld, card, melds))
-        options.push({meldId:meld.id, kind:'natural-set', label:`Lay off on ${meldLabel(meld)}`});
-      if(meld.type==='run'){
-        const fit = layoffValueForRun(meld, card, melds);
-        if(fit!==null) options.push({meldId:meld.id, kind:'natural-run', runValue:fit, label:`Lay off on ${meldLabel(meld)}`});
+          options.push({meldId:meld.id, kind:'wild-run', standsFor:RANK_BY_VALUE[v], runValue:v, label:`Lay off on ${meldLabel(meld)} as ${RANK_BY_VALUE[v]} (wild)`}));
       }
     }
   });
   return options;
 }
 
-/* ---- can `card` be played immediately, either onto an existing meld or as
-   part of a brand new one with cards already in hand? Used to gate digging
-   into the discard pile for a card that isn't on top. ---- */
+/* ---- combinatorial helpers used for feasibility checks (dig-eligibility,
+   "would this action strand the must-play card" checks). These check for
+   EXISTENCE of a valid meld among a set of cards without committing to one
+   or resolving wild ambiguity - just "could some arrangement work". ---- */
+function combinations(arr, size){
+  const results = [];
+  function helper(start, combo){
+    if(combo.length===size){ results.push(combo.slice()); return; }
+    for(let i=start;i<arr.length;i++){
+      combo.push(arr[i]);
+      helper(i+1, combo);
+      combo.pop();
+    }
+  }
+  helper(0, []);
+  return results;
+}
+function couldBeValidSet(cards, wildRank){
+  const wilds = cards.filter(c=>parseCard(c).rank===wildRank);
+  const naturals = cards.filter(c=>parseCard(c).rank!==wildRank);
+  if(wilds.length>1) return false;
+  if(naturals.length===0) return false;
+  const rank = parseCard(naturals[0]).rank;
+  if(!naturals.every(c=>parseCard(c).rank===rank)) return false;
+  const suits = naturals.map(c=>parseCard(c).suit);
+  if(new Set(suits).size !== suits.length) return false;
+  const total = naturals.length + wilds.length;
+  return total>=3 && total<=4;
+}
+function couldBeValidRun(cards, wildRank){
+  const wilds = cards.filter(c=>parseCard(c).rank===wildRank);
+  const naturals = cards.filter(c=>parseCard(c).rank!==wildRank);
+  if(wilds.length>1) return false;
+  if(naturals.length===0) return false;
+  const suit = parseCard(naturals[0]).suit;
+  if(!naturals.every(c=>parseCard(c).suit===suit)) return false;
+  const hasAce = naturals.some(c=>parseCard(c).rank==='A');
+  const aceCandidates = hasAce ? [1,14] : [null];
+  for(const aceVal of aceCandidates){
+    const vals = naturals.map(c=>{
+      const r = parseCard(c).rank;
+      return r==='A' ? aceVal : RANK_ORDER[r];
+    });
+    if(new Set(vals).size !== vals.length) continue;
+    const sorted = [...new Set(vals)].sort((a,b)=>a-b);
+    const min=sorted[0], max=sorted[sorted.length-1];
+    const span = max-min+1;
+    const gaps = span - naturals.length;
+    const total = naturals.length + wilds.length;
+    if(total<3) continue;
+    if(wilds.length===0){
+      if(gaps===0) return true;
+    } else {
+      if(gaps===1) return true;
+      if(gaps===0 && ((min-1>=1)||(max+1<=14))) return true;
+    }
+  }
+  return false;
+}
+// Could ANY 3-4 card subset of `cards` form a valid meld on its own?
+function couldFormAnyMeld(cards, wildRank){
+  for(let size=3; size<=Math.min(4, cards.length); size++){
+    for(const combo of combinations(cards, size)){
+      if(couldBeValidSet(combo, wildRank) || couldBeValidRun(combo, wildRank)) return true;
+    }
+  }
+  return false;
+}
+// Could `target` combine with some 2-3 cards from `others` into a valid new meld?
+function couldFormMeldIncluding(target, others, wildRank){
+  for(let size=3; size<=Math.min(4, others.length+1); size++){
+    for(const combo of combinations(others, size-1)){
+      const cards = [target, ...combo];
+      if(couldBeValidSet(cards, wildRank) || couldBeValidRun(cards, wildRank)) return true;
+    }
+  }
+  return false;
+}
+
+/* ---- can `card` be played THIS TURN - not necessarily as the very next
+   action, but via some sequence (e.g. forming your own meld first, then
+   laying it off). Used to gate digging into the discard pile, and to check
+   whether an in-progress turn would strand a pending must-play card. ---- */
 function canPlayCardNow(card, hand, melds, wildRank){
   if(computeLayoffOptions(card, melds, wildRank).length>0) return true;
+
+  // Would it fit an existing meld once allowed to lay off, and could you
+  // form a meld of your own this turn from other cards to unlock that?
+  const haveOwnMeld = melds.some(m=>m.starterSeat===mySeat);
+  if(!haveOwnMeld){
+    const wouldFitIfAllowed = computeLayoffOptions(card, melds, wildRank, true).length>0;
+    if(wouldFitIfAllowed && couldFormAnyMeld(hand, wildRank)) return true;
+  }
+
+  if(couldFormMeldIncluding(card, hand, wildRank)) return true;
 
   const {rank, suit} = parseCard(card);
   const isWildCard = rank===wildRank;
@@ -660,8 +779,8 @@ function showDigConfirmModal(targetCard, otherCards, wildRank){
 
     const msg = document.createElement('p');
     msg.textContent = otherCards.length
-      ? `You'll take all ${1+otherCards.length} of these cards. You must play ${targetCard} this turn.`
-      : `You must play ${targetCard} this turn.`;
+      ? `You'll take all ${1+otherCards.length} of these cards. You'll need to play ${targetCard} at some point this turn, before you discard.`
+      : `You'll need to play ${targetCard} at some point this turn, before you discard.`;
     box.appendChild(msg);
 
     const row = document.createElement('div');
@@ -782,6 +901,33 @@ function showInvalidMeldModal(){
   });
 }
 
+function showCantRummyModal(reason){
+  return new Promise(resolve=>{
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+
+    const title = document.createElement('h3');
+    title.style.cssText = 'color:#ff9b9b;margin-bottom:12px;font-size:18px;';
+    title.textContent = "Can't call rummy on that";
+    box.appendChild(title);
+
+    const msg = document.createElement('p');
+    msg.textContent = reason || "The top of the discard pile can't be played onto any meld right now.";
+    box.appendChild(msg);
+
+    const btn = document.createElement('button');
+    btn.className = 'btn-gold';
+    btn.textContent = 'OK';
+    btn.onclick = ()=>{ document.body.removeChild(overlay); resolve(); };
+    box.appendChild(btn);
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  });
+}
+
 function showCantEmptyHandModal(){
   return new Promise(resolve=>{
     const overlay = document.createElement('div');
@@ -854,7 +1000,38 @@ function showCantPlayModal(targetCard, wildRank){
     box.appendChild(cardsRow);
 
     const msg = document.createElement('p');
-    msg.textContent = `You need to be able to play ${targetCard} right away \u2014 either onto a meld already in play, or as part of a new one with cards in your hand.`;
+    msg.textContent = `You need to be able to play ${targetCard} at some point this turn \u2014 either onto a meld already in play (now or after you meld something else first), or as part of a new one with cards in your hand.`;
+    box.appendChild(msg);
+
+    const btn = document.createElement('button');
+    btn.className = 'btn-gold';
+    btn.textContent = 'OK';
+    btn.onclick = ()=>{ document.body.removeChild(overlay); resolve(); };
+    box.appendChild(btn);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  });
+}
+
+function showWouldStrandModal(mustPlayCard){
+  return new Promise(resolve=>{
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+
+    const title = document.createElement('h3');
+    title.style.cssText = 'color:#ff9b9b;margin-bottom:12px;font-size:18px;';
+    title.textContent = "That would strand your dug card";
+    box.appendChild(title);
+
+    const cardsRow = document.createElement('div');
+    cardsRow.style.cssText = 'display:flex;justify-content:center;margin-bottom:14px;';
+    cardsRow.appendChild(htmlToEl(cardHTML(mustPlayCard, currentGameData && currentGameData.wildRank, false)));
+    box.appendChild(cardsRow);
+
+    const msg = document.createElement('p');
+    msg.textContent = `You dug for ${mustPlayCard} and still have to play it before you discard. Doing that would leave you unable to play it at all this turn.`;
     box.appendChild(msg);
 
     const btn = document.createElement('button');
@@ -1176,11 +1353,19 @@ function renderGame(data){
 
   if(data.status === 'idle'){
     oppMeldsRow.innerHTML=''; myMeldsRow.innerHTML='';
-    statusPanel.innerHTML = `
-      <h3 style="color:var(--gold-bright)">Ready when you are</h3>
-      <p style="opacity:.75;font-size:14px;margin-bottom:14px;">Whoever deals this round draws first, then the other player draws and goes first.</p>
-      <button class="btn-gold" id="startRoundBtn">Start Round</button>`;
-    wireOnce('startRoundBtn', ()=>startRound());
+    const ready = Object.assign({sam:false,zoe:false}, data.readyForNext);
+    const oppNameForReady = DISPLAY_NAME[otherSeat(mySeat)];
+    if(ready[mySeat]){
+      statusPanel.innerHTML = `
+        <h3 style="color:var(--gold-bright)">Ready when you are</h3>
+        <p style="opacity:.75;font-size:14px;">Waiting for ${oppNameForReady} to be ready...</p>`;
+    } else {
+      statusPanel.innerHTML = `
+        <h3 style="color:var(--gold-bright)">Ready when you are</h3>
+        <p style="opacity:.75;font-size:14px;margin-bottom:14px;">${ready[otherSeat(mySeat)] ? oppNameForReady+' is ready and waiting on you.' : "Whoever deals this round draws first, then the other player draws and goes first."}</p>
+        <button class="btn-gold" id="startRoundBtn">${ready[otherSeat(mySeat)] ? "I'm Ready \u2014 Start!" : 'Start Round'}</button>`;
+      wireOnce('startRoundBtn', markReadyForNextRound);
+    }
     return;
   }
 
@@ -1335,6 +1520,19 @@ function renderPiles(data, pilesRow){
   wrap.appendChild(stack);
   discardDiv.appendChild(wrap);
   pilesRow.appendChild(discardDiv);
+
+  if(canDraw){
+    const rummyWrap = document.createElement('div');
+    rummyWrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px;justify-content:flex-end;';
+    rummyWrap.innerHTML = `<div class="pile-label">&nbsp;</div>`;
+    const rummyBtn = document.createElement('button');
+    rummyBtn.className = 'btn-outline';
+    rummyBtn.textContent = 'Call Rummy!';
+    rummyBtn.onclick = ()=>{ rummyBtn.disabled = true; guarded(callRummy); };
+    rummyWrap.appendChild(rummyBtn);
+    pilesRow.appendChild(rummyWrap);
+  }
+
   lastSeenDiscardTop = topDiscard;
 }
 
@@ -1390,10 +1588,6 @@ function renderHand(data, handSection){
 
   const handSet = new Set(hand);
   selectedCards.forEach(c=>{ if(!handSet.has(c)) selectedCards.delete(c); });
-  // The dug-up card is pinned into the selection so nothing else can be
-  // submitted until it's actually played - this is what prevents getting
-  // stuck: you can't spend your turn on unrelated plays first.
-  if(mustPlay) selectedCards.add(mustPlay);
 
   document.getElementById('statusText').textContent = !myTurn
     ? "Opponent's turn"
@@ -1401,7 +1595,7 @@ function renderHand(data, handSection){
     : 'Your turn \u2014 select cards to build a meld, lay a card onto one in play, or discard';
   document.getElementById('hintText').textContent = !canAct ? ''
     : mustPlay
-      ? `You dug for ${mustPlay} \u2014 it's locked in selected. Play it now (add other cards to meld it, or use a lay-off option) before doing anything else.`
+      ? `You still need to play ${mustPlay} at some point before you discard (marked in red) \u2014 you just can't do anything that would make it unplayable.`
       : !haveOwnMeld
         ? 'You need a meld of your own down before you can lay cards off onto any meld \u2014 yours or theirs. Select 3+ cards for your first meld.'
         : 'Melds are laid down for good once played. Select 3+ cards for a new meld, or select 1 card to lay off, swap, or discard.';
@@ -1417,7 +1611,7 @@ function renderHand(data, handSection){
     if(justDrawnSet.has(c)) el.classList.add('just-drawn');
     if(dragState && dragState.moved && dragState.card===c) el.classList.add('dragging');
 
-    const canSelect = canAct && c!==mustPlay;
+    const canSelect = canAct;
     el.classList.add('draggable');
     attachCardDragHandlers(el, c, canSelect);
     fan.appendChild(el);
@@ -1429,7 +1623,7 @@ function renderHand(data, handSection){
 
   const groupBtn = document.createElement('button');
   groupBtn.className='btn-outline';
-  groupBtn.textContent='Group Selected (new meld)';
+  groupBtn.textContent='Group Selected';
   groupBtn.disabled = !(canAct && selectedCards.size>=3 && hand.length-selectedCards.size>0);
   groupBtn.onclick = ()=>{
     groupBtn.disabled = true;
@@ -1463,10 +1657,9 @@ function renderHand(data, handSection){
   const clearBtn = document.createElement('button');
   clearBtn.className='btn-outline';
   clearBtn.textContent='Clear Selection';
-  clearBtn.disabled = selectedCards.size===0 || (mustPlay && selectedCards.size===1);
+  clearBtn.disabled = selectedCards.size===0;
   clearBtn.onclick = ()=>{
     selectedCards.clear();
-    if(mustPlay) selectedCards.add(mustPlay);
     renderGame(currentGameData);
   };
   actionRow.appendChild(clearBtn);
@@ -1493,16 +1686,21 @@ function renderRoundEnd(data){
   const myHand = (data.hands && data.hands[mySeat]) || [];
 
   const statusPanel = document.getElementById('statusPanel');
+  const ready = Object.assign({sam:false,zoe:false}, data.readyForNext);
+  const nextRoundHtml = ready[mySeat]
+    ? `<p style="opacity:.7;font-size:13px;margin-top:6px;">Waiting for ${oppName} to be ready for the next round...</p>`
+    : `<button class="btn-gold" id="nextRoundBtn">${ready[otherSeat(mySeat)] ? "I'm Ready \u2014 Deal!" : 'Deal Next Round'}</button>`;
+
   statusPanel.innerHTML = `
     <h3 style="color:var(--gold-bright)">${iWon ? 'You went out!' : winnerName+' went out!'}</h3>
     <p style="opacity:.8;font-size:14px;">You scored ${mySign}${myDelta} points this round${iWon ? ' (includes the 100pt bonus for going out first).' : '.'}</p>
     <p style="opacity:.8;font-size:14px;">${oppName} scored ${oppSign}${oppDelta} points this round${!iWon ? ' (includes their 100pt bonus for going out first).' : '.'}</p>
-    <div style="display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap;">
-      <button class="btn-gold" id="nextRoundBtn">Deal Next Round</button>
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap;align-items:center;">
+      ${nextRoundHtml}
       <button class="btn-outline" id="backToStartBtn">Back to Start</button>
     </div>
   `;
-  wireOnce('nextRoundBtn', ()=>startRound());
+  if(!ready[mySeat]) wireOnce('nextRoundBtn', markReadyForNextRound);
   document.getElementById('backToStartBtn').onclick = localBackToStart;
 
   // Show what was left in your hand, positioned below your in-play cards
@@ -1520,11 +1718,10 @@ function renderRoundEnd(data){
 /* =========================================================================
    GAME FLOW ACTIONS
    ========================================================================= */
-async function startRound(){
-  const data = currentGameData;
-  if(data && data.status!=='idle' && data.status!=='roundEnd') return;
+async function beginRound(data){
   // Dealer alternates: always whoever didn't deal last round. The very first
-  // round has no prior dealer on record, so whoever clicks Start deals.
+  // round has no prior dealer on record, so whoever completed readiness
+  // last (triggering this) deals.
   const dealerSeat = (data && data.lastDealerSeat) ? otherSeat(data.lastDealerSeat) : mySeat;
   const deck = shuffle(buildDeck());
   await updateAsync(GAME_PATH, {
@@ -1542,8 +1739,26 @@ async function startRound(){
     mustPlayCard: null,
     justDrawn: null,
     turnCount: 0,
+    readyForNext: {sam:false, zoe:false},
+    rummyableCard: null,
     lastResult: null
   });
+}
+
+// Both players have to click ready before the next round actually deals.
+// Whoever clicks first just marks their own flag and waits; whoever clicks
+// second (completing readiness) is the one who actually kicks off the deal.
+async function markReadyForNextRound(){
+  const data = currentGameData;
+  if(!data || (data.status!=='idle' && data.status!=='roundEnd')) return;
+  const ready = Object.assign({sam:false,zoe:false}, data.readyForNext);
+  if(ready[mySeat]) return;
+  ready[mySeat] = true;
+  if(ready[otherSeat(mySeat)]){
+    await beginRound(data);
+  } else {
+    await updateAsync(GAME_PATH, {readyForNext: ready});
+  }
 }
 
 async function dealerDraw(){
@@ -1611,6 +1826,10 @@ async function drawFromDeck(){
 async function drawFromDiscardDig(clickedIndex){
   const data = currentGameData;
   if(data.turn!==mySeat || data.subphase!=='draw') return;
+  if(data.mustPlayCard){
+    await showCantPlayModal(data.mustPlayCard, data.wildRank);
+    return;
+  }
   const discard = data.discard.slice();
   if(clickedIndex<0 || clickedIndex>=discard.length-1) return; // top card uses drawFromDiscard instead
   const targetCard = discard[clickedIndex];
@@ -1675,6 +1894,18 @@ async function finalizeHandChange(data, hand, extraUpdates){
   await updateAsync(GAME_PATH, updates);
 }
 
+// If a must-play card is still pending, verifies that playing `cards` right
+// now (removing them from hand, adding `newMelds` to what's in play) would
+// NOT strand it - i.e. it would still be playable afterward, either onto an
+// existing meld or as part of a new one with whatever's left in hand.
+async function wouldStrandMustPlay(data, cardsBeingPlayed, resultingMelds, resultingHand){
+  if(!data.mustPlayCard) return false;
+  if(cardsBeingPlayed.includes(data.mustPlayCard)) return false; // resolves it, doesn't strand it
+  if(!resultingHand.includes(data.mustPlayCard)) return false; // already gone somehow
+  const stillPlayable = canPlayCardNow(data.mustPlayCard, resultingHand.filter(c=>c!==data.mustPlayCard), resultingMelds, data.wildRank);
+  return !stillPlayable;
+}
+
 async function confirmGroup(){
   const data = currentGameData;
   if(data.turn!==mySeat || data.subphase!=='discard') return;
@@ -1685,21 +1916,138 @@ async function confirmGroup(){
     return;
   }
   const wildRank = data.wildRank;
-  const wilds = cards.filter(c=>parseCard(c).rank===wildRank);
-  if(wilds.length>1){ await showTooManyWildsModal(); return; }
-  const naturals = cards.filter(c=>parseCard(c).rank!==wildRank);
-  const wildCard = wilds[0] || null;
 
-  let meld = await tryBuildSet(naturals, wildCard);
-  if(!meld) meld = await tryBuildRun(naturals, wildCard);
+  // Try it as an entirely natural meld first - a wild-ranked card playing
+  // in its own true rank+suit (e.g. the 2 of hearts genuinely completing a
+  // 2-3-4 hearts run when 2s are wild) isn't "used as a wild" and shouldn't
+  // score like one.
+  let meld = await tryBuildSet(cards, null);
+  if(!meld) meld = await tryBuildRun(cards, null);
+
+  // Only if that fails does one of the wild-ranked cards need to actually
+  // stand in for something else.
+  if(!meld){
+    const wilds = cards.filter(c=>parseCard(c).rank===wildRank);
+    if(wilds.length>1){ await showTooManyWildsModal(); return; }
+    const naturals = cards.filter(c=>parseCard(c).rank!==wildRank);
+    const wildCard = wilds[0] || null;
+    meld = await tryBuildSet(naturals, wildCard);
+    if(!meld) meld = await tryBuildRun(naturals, wildCard);
+  }
+
   if(!meld){ await showInvalidMeldModal(); return; }
 
   const hand = hand0.slice();
   cards.forEach(c=>{ const i=hand.indexOf(c); if(i>-1) hand.splice(i,1); });
   const melds = (data.melds||[]).concat([meld]);
-  selectedCards.clear();
 
+  if(await wouldStrandMustPlay(data, cards, melds, hand)){
+    await showWouldStrandModal(data.mustPlayCard);
+    return;
+  }
+
+  selectedCards.clear();
   await finalizeHandChange(data, hand, {melds: melds});
+}
+
+// Applies one layoff option to a (already-cloned) melds array, mutating it
+// in place. Shared by performLayoff (from your hand) and callRummy (from
+// the discard pile) so both follow identical placement rules.
+function applyLayoffToMelds(melds, card, option, ownerSeat){
+  if(option.kind==='replace-wild'){
+    // The wild stays exactly where it is - it's never touched. The card
+    // doesn't merge into that meld; it becomes its own standalone in-play
+    // card sitting in front of whoever played it.
+    const targetMeld = melds.find(m=>m.id===option.meldId);
+    melds.push({
+      id: genId(),
+      type: 'single',
+      starterSeat: ownerSeat,
+      extendsMeldId: option.meldId,
+      label: targetMeld ? ('Matches wild in '+meldLabel(targetMeld)) : 'Matches a wild',
+      slots: [{card, isWild:false, ownerSeat}]
+    });
+    return;
+  }
+
+  const meld = melds.find(m=>m.id===option.meldId);
+  if(!meld) return;
+  const newSlot = {card, isWild: option.kind.startsWith('wild'), ownerSeat};
+  if(newSlot.isWild){
+    newSlot.standsFor = option.standsFor;
+    newSlot.impliedCard = meld.type==='set' ? (meld.rank+option.standsFor) : (option.standsFor+meld.suit);
+  }
+  if(meld.type==='run') newSlot.runValue = option.runValue;
+
+  if(meld.starterSeat === ownerSeat){
+    // extending a meld that seat started themselves - merges right into it
+    meld.slots.push(newSlot);
+  } else {
+    // extending someone else's meld - it still counts toward that meld
+    // (occupies the value/suit for future lay-off checks), but displays
+    // as a standalone card in front of whoever played it, not merged into theirs
+    melds.push({
+      id: genId(),
+      type: 'single',
+      starterSeat: ownerSeat,
+      extendsMeldId: meld.id,
+      label: 'Extends '+meldLabel(meld),
+      slots: [newSlot]
+    });
+  }
+}
+
+// Calling rummy: grab the TOP discard card straight into one of your melds,
+// for free, before your actual draw. Only ever the top card (never dig for
+// this), only on the opponent's discard (naturally true here since turns
+// strictly alternate - the top card was always just discarded by them),
+// and you must already have a meld of your own down. Doesn't consume your
+// draw - your turn just continues into a normal draw afterward.
+async function callRummy(){
+  const data = currentGameData;
+  if(data.turn!==mySeat || data.subphase!=='draw') return;
+  const discard = data.discard||[];
+  if(discard.length===0){
+    await showCantRummyModal('The discard pile is empty.');
+    return;
+  }
+  const topCard = discard[discard.length-1];
+  if(!data.rummyableCard || topCard!==data.rummyableCard){
+    // The top card is only rummy-able if it's the one that was JUST
+    // discarded. A card exposed by an earlier rummy call this same turn
+    // doesn't count, even if it would otherwise fit.
+    await showCantRummyModal("You can only call rummy on a card that was just discarded \u2014 this one's already been sitting here.");
+    return;
+  }
+  const melds = data.melds||[];
+  const haveOwnMeld = melds.some(m=>m.starterSeat===mySeat);
+  if(!haveOwnMeld){
+    await showCantRummyModal("You need a meld of your own down before you can call rummy.");
+    return;
+  }
+
+  const options = computeLayoffOptions(topCard, melds, data.wildRank);
+  if(options.length===0){
+    await showCantRummyModal(`${topCard} doesn't fit onto any meld in play right now.`);
+    return;
+  }
+
+  let chosen = options[0];
+  if(options.length>1){
+    const pickIdx = await askChoice(`Call rummy on ${topCard} \u2014 play it where?`,
+      options.map((o,i)=>({label:o.label, value:i})));
+    if(pickIdx===null || pickIdx===undefined) return; // cancelled
+    chosen = options[pickIdx];
+  }
+
+  const newDiscard = discard.slice(0, discard.length-1);
+  const meldsCopy = melds.map(m=>({...m, slots: m.slots.map(s=>({...s}))}));
+  applyLayoffToMelds(meldsCopy, topCard, chosen, mySeat);
+
+  // Doesn't count as your draw - status/turn/subphase are untouched, so you
+  // simply continue into your normal draw right after. rummyableCard is
+  // cleared so whatever's now exposed underneath can't be chain-called.
+  await updateAsync(GAME_PATH, {discard: newDiscard, melds: meldsCopy, rummyableCard: null});
 }
 
 async function performLayoff(card, option){
@@ -1717,45 +2065,11 @@ async function performLayoff(card, option){
   const hand = hand0.slice();
   hand.splice(idx,1);
 
-  if(option.kind==='replace-wild'){
-    // The wild stays exactly where it is - it's never touched. Your card
-    // doesn't merge into that meld; it becomes its own standalone in-play
-    // card sitting in front of you.
-    const targetMeld = melds.find(m=>m.id===option.meldId);
-    melds.push({
-      id: genId(),
-      type: 'single',
-      starterSeat: mySeat,
-      extendsMeldId: option.meldId,
-      label: targetMeld ? ('Matches wild in '+meldLabel(targetMeld)) : 'Matches a wild',
-      slots: [{card, isWild:false, ownerSeat:mySeat}]
-    });
-  } else {
-    const meld = melds.find(m=>m.id===option.meldId);
-    if(!meld) return;
-    const newSlot = {card, isWild: option.kind.startsWith('wild'), ownerSeat: mySeat};
-    if(newSlot.isWild){
-      newSlot.standsFor = option.standsFor;
-      newSlot.impliedCard = meld.type==='set' ? (meld.rank+option.standsFor) : (option.standsFor+meld.suit);
-    }
-    if(meld.type==='run') newSlot.runValue = option.runValue;
+  applyLayoffToMelds(melds, card, option, mySeat);
 
-    if(meld.starterSeat === mySeat){
-      // extending a meld you started yourself - merges right into it
-      meld.slots.push(newSlot);
-    } else {
-      // extending someone else's meld - it still counts toward that meld
-      // (occupies the value/suit for future lay-off checks), but displays
-      // as your own standalone card in front of you, not merged into theirs
-      melds.push({
-        id: genId(),
-        type: 'single',
-        starterSeat: mySeat,
-        extendsMeldId: meld.id,
-        label: 'Extends '+meldLabel(meld),
-        slots: [newSlot]
-      });
-    }
+  if(await wouldStrandMustPlay(data, [card], melds, hand)){
+    await showWouldStrandModal(data.mustPlayCard);
+    return;
   }
 
   selectedCards.clear();
@@ -1765,7 +2079,7 @@ async function performLayoff(card, option){
 async function performDiscard(card){
   const data = currentGameData;
   if(data.turn!==mySeat || data.subphase!=='discard') return;
-  if(data.mustPlayCard){ alert('You must play '+data.mustPlayCard+' before you can discard.'); return; }
+  if(data.mustPlayCard){ await showCantPlayModal(data.mustPlayCard, data.wildRank); return; }
   const hand = (data.hands[mySeat]||[]).slice();
   const idx = hand.indexOf(card);
   if(idx===-1) return;
@@ -1774,7 +2088,7 @@ async function performDiscard(card){
 
   if(hand.length===0){
     // Melded/laid off everything else and discarded the last card - going out.
-    await updateAsync(GAME_PATH, {['hands/'+mySeat]: hand, discard: discard, justDrawn: null, turnCount: (data.turnCount||0)+1});
+    await updateAsync(GAME_PATH, {['hands/'+mySeat]: hand, discard: discard, justDrawn: null, turnCount: (data.turnCount||0)+1, rummyableCard: card});
     await endRound(mySeat);
     selectedCards.clear();
     return;
@@ -1786,7 +2100,8 @@ async function performDiscard(card){
     turn: otherSeat(mySeat),   // triggers the next player's turn
     subphase: 'draw',
     justDrawn: null,
-    turnCount: (data.turnCount||0)+1
+    turnCount: (data.turnCount||0)+1,
+    rummyableCard: card        // only THIS card can be rummy-called - never chains to whatever's exposed after
   });
   selectedCards.clear();
 }
@@ -1801,7 +2116,7 @@ async function endRound(winnerSeat){
     let delta = 0;
     melds.forEach(meld=>{
       meld.slots.forEach(slot=>{
-        if(slot.ownerSeat===seat) delta += cardPoints(slot.card, wildRank); // + for anything in play
+        if(slot.ownerSeat===seat) delta += slotPoints(slot);                   // + for anything in play
       });
     });
     const handCards = (data.hands && data.hands[seat]) || [];
