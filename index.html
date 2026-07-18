@@ -222,7 +222,7 @@
         <span class="name" id="myNamePillLabel">You</span><span class="num" id="myScoreLabel">0</span>
         <span style="opacity:.4">&middot;</span>
         <span class="name" id="oppNamePillLabel">Opponent</span><span class="num" id="oppScoreLabel">0</span>
-        <span class="lowest-note">(higher wins)</span>
+        <span class="lowest-note"></span>
       </div>
       <button class="btn-outline" id="historyBtn" style="padding:6px 12px;font-size:12px;">&#9776; History</button>
     </div>
@@ -1470,7 +1470,7 @@ function renderDealing(data, statusPanel){
     if(mySeat===dealerSeat){
       statusPanel.innerHTML = `
         <h3 style="color:var(--gold-bright)">You're dealing this round</h3>
-        <p style="opacity:.75;font-size:14px;margin-bottom:14px;">Draw a card &mdash; its rank becomes wild, and it plus more cards up to that rank's value make up your hand (Ace is high, worth 14).</p>
+        <p style="opacity:.75;font-size:14px;margin-bottom:14px;">Draw a card &mdash; its rank becomes wild, and it plus more cards up to that rank's value make up your hand.</p>
         <button class="btn-gold" id="dealerDrawBtn">Draw Wild Card</button>`;
       wireOnce('dealerDrawBtn', ()=>dealerDraw());
     } else {
@@ -1511,7 +1511,7 @@ function renderPiles(data, pilesRow){
 
   const discardDiv = document.createElement('div');
   discardDiv.className='pile';
-  discardDiv.innerHTML = `<div class="pile-label">Discard Pile (oldest \u2192 newest)</div>`;
+  discardDiv.innerHTML = `<div class="pile-label">Discard Pile</div>`;
   const wrap = document.createElement('div');
   wrap.className = 'discard-stack-wrap';
   const stack = document.createElement('div');
@@ -1637,7 +1637,7 @@ function renderHand(data, handSection){
 
   const groupBtn = document.createElement('button');
   groupBtn.className='btn-outline';
-  groupBtn.textContent='Group Selected (new meld)';
+  groupBtn.textContent='Group Selected';
   groupBtn.disabled = !(canAct && selectedCards.size>=3 && hand.length-selectedCards.size>0);
   groupBtn.onclick = ()=>{
     groupBtn.disabled = true;
