@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Migrate Wild Rummy History</title>
+<style>
+  body{
+    font-family:sans-serif;
+    background:#0b3d2e;
+    color:#f5f1e6;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:16px;
+    text-align:center;
+    padding:20px;
+  }
+  button{
+    font-size:15px;
+    font-weight:600;
+    padding:12px 22px;
+    border:none;
+    border-radius:8px;
+    cursor:pointer;
+    background:#c9a227;
+    color:#241a02;
+  }
+  button:disabled{opacity:.5;cursor:not-allowed;}
+  #status{font-size:13px;opacity:.85;max-width:480px;white-space:pre-wrap;text-align:left;background:rgba(0,0,0,.25);padding:12px;border-radius:8px;min-height:20px;}
+</style>
+</head>
+<body>
+  <h2>Migrate History Format</h2>
+  <p style="max-width:420px;opacity:.8;font-size:14px;">
+    Converts each round in <code>rummyGame/history</code> from the old format
+    (which stored winner/loser/totals/diff) to the new format, which stores
+    only that round's raw <code>{sam, zoe}</code> score. Everything else
+    (winner, running totals, diff) is now computed in the app itself. Safe to
+    run more than once - rounds already in the new format are left alone.
+  </p>
+  <button id="runBtn" onclick="doMigrate()">Migrate History</button>
+  <div id="status"></div>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="database.js"></script>
+  <script>
+    async function doMigrate(){
+      const btn = document.getElementById('runBtn');
+      const status = document.getElementById('status');
+      btn.disabled = true;
+      status.textContent = 'Reading current history...';
+
+      try{
+        const history = await readOnce('rummyGame/history');
+
+        if(!history || !Array.isArray(history) || history.length===0){
+          status.textContent = 'No history found - nothing to migrate.';
+          btn.disabled = false;
+          return;
+        }
+
+        let convertedCount = 0;
+        let alreadyNewCount = 0;
+
+        const migrated = history.map(entry=>{
+          // Already in the new format? (no 'winner' field, just sam/zoe)
+          if(entry && entry.winner===undefined && ('sam' in entry) && ('zoe' in entry)){
+            alreadyNewCount++;
+            return {sam: entry.sam, zoe: entry.zoe};
+          }
+          // Old format: {n, winner, winnerDelta, loserDelta, samTotal, zoeTotal, diff}
+          if(entry && entry.winner && typeof entry.winnerDelta==='number' && typeof entry.loserDelta==='number'){
+            const loser = entry.winner==='sam' ? 'zoe' : 'sam';
+            const samDelta = entry.winner==='sam' ? entry.winnerDelta : entry.loserDelta;
+            const zoeDelta = entry.winner==='zoe' ? entry.winnerDelta : entry.loserDelta;
+            convertedCount++;
+            return {sam: samDelta, zoe: zoeDelta};
+          }
+          // Unrecognized shape - leave as-is rather than guess
+          return entry;
+        });
+
+        await writeAsync('rummyGame/history', migrated);
+
+        status.textContent =
+          `Done.\nConverted: ${convertedCount}\nAlready new format: ${alreadyNewCount}\nTotal rounds: ${migrated.length}`;
+      }catch(e){
+        console.error(e);
+        status.textContent = 'Something went wrong: ' + e.message;
+      }
+      btn.disabled = false;
+    }
+  </script>
+</body>
+</html>

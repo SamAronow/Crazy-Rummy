@@ -836,7 +836,23 @@ function renderHistoryContent(){
     el.innerHTML = '<p style="font-size:13px;opacity:.7;">No rounds finished yet.</p>';
     return;
   }
-  const rows = history.slice().reverse().map(h=>{
+
+  // Only each round's raw sam/zoe score is stored in the database - winner,
+  // running totals, and the diff are all derived here for display.
+  let samTotal = 0, zoeTotal = 0;
+  const derived = history.map((h, idx)=>{
+    samTotal += h.sam;
+    zoeTotal += h.zoe;
+    return {
+      n: idx+1,
+      winner: h.sam >= h.zoe ? 'sam' : 'zoe',
+      samTotal: samTotal,
+      zoeTotal: zoeTotal,
+      diff: samTotal - zoeTotal
+    };
+  });
+
+  const rows = derived.slice().reverse().map(h=>{
     const aheadName = h.diff>=0 ? 'Sam' : 'Zoe';
     const diffAbs = Math.abs(h.diff);
     return `<tr style="border-bottom:1px solid rgba(245,241,230,.1);">
@@ -1521,17 +1537,15 @@ function renderPiles(data, pilesRow){
   discardDiv.appendChild(wrap);
   pilesRow.appendChild(discardDiv);
 
-  if(canDraw){
-    const rummyWrap = document.createElement('div');
-    rummyWrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px;justify-content:flex-end;';
-    rummyWrap.innerHTML = `<div class="pile-label">&nbsp;</div>`;
-    const rummyBtn = document.createElement('button');
-    rummyBtn.className = 'btn-outline';
-    rummyBtn.textContent = 'Call Rummy!';
-    rummyBtn.onclick = ()=>{ rummyBtn.disabled = true; guarded(callRummy); };
-    rummyWrap.appendChild(rummyBtn);
-    pilesRow.appendChild(rummyWrap);
-  }
+  const rummyWrap = document.createElement('div');
+  rummyWrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px;justify-content:flex-end;';
+  rummyWrap.innerHTML = `<div class="pile-label">&nbsp;</div>`;
+  const rummyBtn = document.createElement('button');
+  rummyBtn.className = 'btn-outline';
+  rummyBtn.textContent = 'Call Rummy!';
+  rummyBtn.onclick = ()=>guarded(callRummy);
+  rummyWrap.appendChild(rummyBtn);
+  pilesRow.appendChild(rummyWrap);
 
   lastSeenDiscardTop = topDiscard;
 }
@@ -1623,7 +1637,7 @@ function renderHand(data, handSection){
 
   const groupBtn = document.createElement('button');
   groupBtn.className='btn-outline';
-  groupBtn.textContent='Group Selected';
+  groupBtn.textContent='Group Selected (new meld)';
   groupBtn.disabled = !(canAct && selectedCards.size>=3 && hand.length-selectedCards.size>0);
   groupBtn.onclick = ()=>{
     groupBtn.disabled = true;
@@ -2005,7 +2019,14 @@ function applyLayoffToMelds(melds, card, option, ownerSeat){
 // draw - your turn just continues into a normal draw afterward.
 async function callRummy(){
   const data = currentGameData;
-  if(data.turn!==mySeat || data.subphase!=='draw') return;
+  if(data.turn!==mySeat || data.subphase!=='draw'){
+    await showCantRummyModal(
+      data.turn!==mySeat
+        ? "It's not your turn right now."
+        : "You've already drawn this turn \u2014 you can only call rummy before you draw."
+    );
+    return;
+  }
   const discard = data.discard||[];
   if(discard.length===0){
     await showCantRummyModal('The discard pile is empty.');
@@ -2131,20 +2152,14 @@ async function endRound(winnerSeat){
   scores[winnerSeat] = (scores[winnerSeat]||0) + winnerDelta;
   scores[loserSeat] = (scores[loserSeat]||0) + loserDelta;
 
-  const history = (data.history||[]).concat([{
-    n: (data.history ? data.history.length : 0) + 1,
-    winner: winnerSeat,
-    winnerDelta: winnerDelta,
-    loserDelta: loserDelta,
-    samTotal: scores.sam,
-    zoeTotal: scores.zoe,
-    diff: scores.sam - scores.zoe   // positive = Sam ahead, negative = Zoe ahead
-  }]);
+  const samDelta = winnerSeat==='sam' ? winnerDelta : loserDelta;
+  const zoeDelta = winnerSeat==='zoe' ? winnerDelta : loserDelta;
+  const history = (data.history||[]).concat([{sam: samDelta, zoe: zoeDelta}]);
 
   await updateAsync(GAME_PATH, {
     status: 'roundEnd',
     scores: scores,               // lifetime tally - never reset
-    history: history,             // full round-by-round log - never reset
+    history: history,             // raw per-round scores only - never reset
     lastResult: {winner: winnerSeat, loser: loserSeat, winnerDelta: winnerDelta, loserDelta: loserDelta}
   });
 }
