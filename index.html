@@ -219,10 +219,7 @@
     <div class="topbar">
       <div class="eyebrow">Playing as <span id="myNameLabel">You</span></div>
       <div class="score-pill">
-        <span class="name" id="myNamePillLabel">You</span><span class="num" id="myScoreLabel">0</span>
-        <span style="opacity:.4">&middot;</span>
-        <span class="name" id="oppNamePillLabel">Opponent</span><span class="num" id="oppScoreLabel">0</span>
-        <span class="lowest-note"></span>
+        <span class="num" id="scoreDiffLabel">Tied</span>
       </div>
       <button class="btn-outline" id="historyBtn" style="padding:6px 12px;font-size:12px;">&#9776; History</button>
     </div>
@@ -251,6 +248,9 @@
           <div class="eyebrow">Wild Rank</div>
         </div>
       </div>
+
+      <!-- opponent's leftover hand, shown here at round end if you went out -->
+      <div class="hand-fan" id="oppFinalHandFan" style="display:none;padding:6px 0;"></div>
 
       <!-- opponent's laid-down melds - "in front of them" -->
       <div class="melds-row" id="oppMeldsRow"></div>
@@ -287,7 +287,10 @@
   <div id="historyPanelInner">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
       <h3 style="color:var(--gold-bright);font-size:16px;">Game History</h3>
-      <button class="btn-outline" id="closeHistoryBtn" style="padding:4px 10px;font-size:12px;">Close</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-outline" id="graphHistoryBtn" style="padding:4px 10px;font-size:12px;">Graph</button>
+        <button class="btn-outline" id="closeHistoryBtn" style="padding:4px 10px;font-size:12px;">Close</button>
+      </div>
     </div>
     <div id="historyContent"></div>
   </div>
@@ -391,6 +394,25 @@ function combinedSlots(meld, allMelds){
 function meldHasWild(meld, allMelds){
   return combinedSlots(meld, allMelds).some(s=>s.isWild);
 }
+// For suit-usage (sets) / value-range (runs) purposes only: once a wild has
+// been "matched" by a natural replacement at the same position, that
+// position should only count once, not twice - the wild card physically
+// stays put (per applyLayoffToMelds), but it's spent, so extension checks
+// should treat the natural as occupying that slot. meldHasWild above is
+// unaffected - it still sees the original wild slot, so a run/set that ever
+// had a wild can never accept a second one, matched or not.
+function effectiveSlotsForCounting(meld, allMelds){
+  const slots = combinedSlots(meld, allMelds);
+  const byKey = new Map();
+  slots.forEach(s=>{
+    const key = meld.type==='set'
+      ? (s.isWild ? s.standsFor : parseCard(s.card).suit)
+      : s.runValue;
+    const existing = byKey.get(key);
+    if(!existing || (existing.isWild && !s.isWild)) byKey.set(key, s);
+  });
+  return Array.from(byKey.values());
+}
 // Every run slot carries an explicit resolved runValue (1-14) set at the moment
 // it's placed. Aces are the only rank with two possible values (1 or 14); once
 // placed, a slot's value is fixed - this is what makes "no wrap" automatic,
@@ -492,7 +514,7 @@ async function buildRunFromValues(naturals, wildCard, valueMap){
 function canLayOffNaturalOnSet(meld, card, allMelds){
   const {rank, suit} = parseCard(card);
   if(rank !== meld.rank) return false;
-  const slots = combinedSlots(meld, allMelds);
+  const slots = effectiveSlotsForCounting(meld, allMelds);
   if(slots.length>=4) return false;
   const used = slots.map(s=> s.isWild ? s.standsFor : parseCard(s.card).suit);
   return !used.includes(suit);
@@ -503,7 +525,7 @@ function canLayOffNaturalOnSet(meld, card, allMelds){
 function layoffValueForRun(meld, card, allMelds){
   const {rank, suit} = parseCard(card);
   if(suit !== meld.suit) return null;
-  const vals = combinedSlots(meld, allMelds).map(s=>s.runValue);
+  const vals = effectiveSlotsForCounting(meld, allMelds).map(s=>s.runValue);
   const min = Math.min(...vals), max = Math.max(...vals);
   if(rank==='A'){
     if(min-1===1) return 1;
@@ -837,8 +859,10 @@ function renderHistoryContent(){
     return;
   }
 
-  // Only each round's raw sam/zoe score is stored in the database - winner,
-  // running totals, and the diff are all derived here for display.
+  // Only each round's raw sam/zoe score is stored in the database. Running
+  // totals are still tracked here internally (to compute the cumulative
+  // diff), just not shown as their own columns anymore - only who won each
+  // round, by how much, and the running total difference are displayed.
   let samTotal = 0, zoeTotal = 0;
   const derived = history.map((h, idx)=>{
     samTotal += h.sam;
@@ -846,8 +870,7 @@ function renderHistoryContent(){
     return {
       n: idx+1,
       winner: h.sam >= h.zoe ? 'sam' : 'zoe',
-      samTotal: samTotal,
-      zoeTotal: zoeTotal,
+      margin: Math.abs(h.sam - h.zoe),
       diff: samTotal - zoeTotal
     };
   });
@@ -855,11 +878,11 @@ function renderHistoryContent(){
   const rows = derived.slice().reverse().map(h=>{
     const aheadName = h.diff>=0 ? 'Sam' : 'Zoe';
     const diffAbs = Math.abs(h.diff);
+    const byColor = h.winner==='zoe' ? '#8fd9a8' : '#ffb4bd';
     return `<tr style="border-bottom:1px solid rgba(245,241,230,.1);">
       <td style="padding:6px 4px;">${h.n}</td>
       <td style="padding:6px 4px;">${DISPLAY_NAME[h.winner]}</td>
-      <td style="padding:6px 4px;text-align:right;">${h.samTotal}</td>
-      <td style="padding:6px 4px;text-align:right;">${h.zoeTotal}</td>
+      <td style="padding:6px 4px;text-align:right;color:${byColor};">+${h.margin}</td>
       <td style="padding:6px 4px;text-align:right;color:${h.diff>=0?'#8fd9a8':'#ffb4bd'};">${aheadName} +${diffAbs}</td>
     </tr>`;
   }).join('');
@@ -870,14 +893,113 @@ function renderHistoryContent(){
           <tr style="border-bottom:1.5px solid rgba(201,162,39,.5);">
             <th style="text-align:left;padding:6px 4px;">#</th>
             <th style="text-align:left;padding:6px 4px;">Won by</th>
-            <th style="text-align:right;padding:6px 4px;">Sam</th>
-            <th style="text-align:right;padding:6px 4px;">Zoe</th>
-            <th style="text-align:right;padding:6px 4px;">Diff</th>
+            <th style="text-align:right;padding:6px 4px;">By</th>
+            <th style="text-align:right;padding:6px 4px;">Total Diff</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
+}
+
+// Full-screen popup graphing the running score difference (Sam - Zoe) over
+// every finished round. Uses the same derivation as the history table -
+// only the raw {sam, zoe} per-round scores are ever stored.
+function showGraphModal(){
+  const data = currentGameData || {};
+  const history = data.history || [];
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(4,15,11,.94);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;';
+
+  const box = document.createElement('div');
+  box.style.cssText = 'background:var(--felt-dark);border:1.5px solid var(--gold);border-radius:16px;padding:24px;max-width:820px;width:100%;max-height:90vh;overflow:auto;';
+
+  const header = document.createElement('div');
+  header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;';
+  const title = document.createElement('h3');
+  title.style.cssText = 'color:var(--gold-bright);font-size:18px;';
+  title.textContent = 'Score Difference Over Time';
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'btn-gold';
+  closeBtn.textContent = 'Close';
+  closeBtn.onclick = ()=>document.body.removeChild(overlay);
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+  box.appendChild(header);
+
+  if(history.length===0){
+    const p = document.createElement('p');
+    p.style.cssText = 'font-size:14px;opacity:.7;margin-top:14px;';
+    p.textContent = 'No rounds finished yet \u2014 nothing to graph.';
+    box.appendChild(p);
+  } else {
+    const sub = document.createElement('p');
+    sub.style.cssText = 'font-size:12px;opacity:.6;margin-bottom:14px;';
+    box.appendChild(sub);
+
+    let samTotal = 0, zoeTotal = 0;
+    const points = [{n:0, diff:0}];
+    history.forEach((h, idx)=>{
+      samTotal += h.sam; zoeTotal += h.zoe;
+      points.push({n: idx+1, diff: samTotal - zoeTotal});
+    });
+    box.appendChild(buildDiffGraphSvg(points));
+
+    const finalDiff = points[points.length-1].diff;
+    const summary = document.createElement('p');
+    summary.style.cssText = `font-size:13px;margin-top:14px;color:${finalDiff>=0?'#8fd9a8':'#ffb4bd'};`;
+    summary.textContent = finalDiff===0 ? 'Currently tied.' : `Currently: ${finalDiff>0?'Sam':'Zoe'} ahead by ${Math.abs(finalDiff)}.`;
+    box.appendChild(summary);
+  }
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+
+function buildDiffGraphSvg(points){
+  const W = 760, H = 340;
+  const padL = 54, padR = 20, padT = 20, padB = 40;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+
+  const maxAbs = Math.max(10, ...points.map(p=>Math.abs(p.diff)));
+  const yMin = -maxAbs, yMax = maxAbs;
+
+  const xForN = n => points.length<=1 ? padL : padL + (n/(points.length-1))*plotW;
+  const yForDiff = d => padT + plotH - ((d - yMin)/(yMax - yMin))*plotH;
+  const zeroY = yForDiff(0);
+
+  const linePoints = points.map(p=>`${xForN(p.n)},${yForDiff(p.diff)}`).join(' ');
+
+  const dots = points.filter(p=>p.n>0).map(p=>{
+    const x = xForN(p.n), y = yForDiff(p.diff);
+    const color = p.diff>=0 ? '#8fd9a8' : '#ffb4bd';
+    return `<circle cx="${x}" cy="${y}" r="4" fill="${color}" stroke="#072a20" stroke-width="1.5"/>`;
+  }).join('');
+
+  const xLabels = points.filter(p=>p.n>0 && (p.n-1)%3===0).map(p=>{
+    const x = xForN(p.n);
+    return `<text x="${x}" y="${H-padB+18}" font-size="10" fill="rgba(245,241,230,.6)" text-anchor="middle" font-family="'IBM Plex Mono',monospace">${p.n}</text>`;
+  }).join('');
+
+  const svgStr = `
+    <svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:100%;display:block;">
+      <line x1="${padL}" y1="${zeroY}" x2="${W-padR}" y2="${zeroY}" stroke="rgba(245,241,230,.35)" stroke-width="1" stroke-dasharray="4,3"/>
+      <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H-padB}" stroke="rgba(245,241,230,.3)" stroke-width="1"/>
+      <line x1="${padL}" y1="${H-padB}" x2="${W-padR}" y2="${H-padB}" stroke="rgba(245,241,230,.3)" stroke-width="1"/>
+      <text x="${padL-8}" y="${zeroY+4}" font-size="10" fill="rgba(245,241,230,.5)" text-anchor="end" font-family="'IBM Plex Mono',monospace">0</text>
+      <text x="${padL-8}" y="${padT+4}" font-size="10" fill="rgba(245,241,230,.5)" text-anchor="end" font-family="'IBM Plex Mono',monospace">+${Math.round(yMax)}</text>
+      <text x="${padL-8}" y="${H-padB+4}" font-size="10" fill="rgba(245,241,230,.5)" text-anchor="end" font-family="'IBM Plex Mono',monospace">-${Math.round(yMax)}</text>
+      <polyline points="${linePoints}" fill="none" stroke="#e8c468" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+      ${dots}
+      ${xLabels}
+      <text x="${W/2}" y="${H-6}" font-size="11" fill="rgba(245,241,230,.55)" text-anchor="middle" font-family="'IBM Plex Mono',monospace">Round</text>
+    </svg>`;
+
+  const wrap = document.createElement('div');
+  wrap.innerHTML = svgStr.trim();
+  return wrap.firstElementChild;
 }
 
 function toggleHistoryPanel(){
@@ -1273,6 +1395,7 @@ function enterGame(){
   document.getElementById('game').style.display = 'flex';
   document.getElementById('historyBtn').onclick = toggleHistoryPanel;
   document.getElementById('closeHistoryBtn').onclick = closeHistoryPanel;
+  document.getElementById('graphHistoryBtn').onclick = showGraphModal;
   if(unsubscribe) unsubscribe();
   unsubscribe = listen(GAME_PATH, onGameData);
 }
@@ -1315,13 +1438,24 @@ function renderGame(data){
   const opp = DISPLAY_NAME[otherSeat(mySeat)];
 
   document.getElementById('myNameLabel').textContent = me;
-  document.getElementById('myNamePillLabel').textContent = me;
-  document.getElementById('oppNamePillLabel').textContent = opp;
-  document.getElementById('myScoreLabel').textContent = (data.scores && data.scores[mySeat]) || 0;
-  document.getElementById('oppScoreLabel').textContent = (data.scores && data.scores[otherSeat(mySeat)]) || 0;
+  const myScore = (data.scores && data.scores[mySeat]) || 0;
+  const oppScore = (data.scores && data.scores[otherSeat(mySeat)]) || 0;
+  const scoreDiff = myScore - oppScore;
+  const diffLabel = document.getElementById('scoreDiffLabel');
+  if(scoreDiff===0){
+    diffLabel.textContent = 'Tied';
+    diffLabel.style.color = 'var(--cream)';
+  } else if(scoreDiff>0){
+    diffLabel.textContent = `You're up by ${scoreDiff}`;
+    diffLabel.style.color = '#8fd9a8';
+  } else {
+    diffLabel.textContent = `${opp} is up by ${Math.abs(scoreDiff)}`;
+    diffLabel.style.color = '#ffb4bd';
+  }
 
   const landing = document.getElementById('landingPanel');
   const oppRow = document.getElementById('oppRow');
+  const oppFinalHandFan = document.getElementById('oppFinalHandFan');
   const oppMeldsRow = document.getElementById('oppMeldsRow');
   const myMeldsRow = document.getElementById('myMeldsRow');
   const recapRow = document.getElementById('recapRow');
@@ -1332,6 +1466,7 @@ function renderGame(data){
   if(!localActive){
     landing.style.display = 'block';
     oppRow.style.display = 'none';
+    oppFinalHandFan.style.display = 'none'; oppFinalHandFan.innerHTML = '';
     oppMeldsRow.innerHTML = ''; myMeldsRow.innerHTML = '';
     recapRow.style.display = 'none';
     pilesRow.style.display = 'none';
@@ -1347,6 +1482,10 @@ function renderGame(data){
   landing.style.display = 'none';
   oppRow.style.display = 'flex';
   pilesRow.style.display = 'flex';
+  // Only shown (and populated) inside renderRoundEnd when you went out -
+  // every other status resets it here so it never lingers from a past round.
+  oppFinalHandFan.style.display = 'none';
+  oppFinalHandFan.innerHTML = '';
 
   const wrap = document.getElementById('wildMedallionWrap');
   if(data.wildRank){
@@ -1511,7 +1650,7 @@ function renderPiles(data, pilesRow){
 
   const discardDiv = document.createElement('div');
   discardDiv.className='pile';
-  discardDiv.innerHTML = `<div class="pile-label">Discard Pile</div>`;
+  discardDiv.innerHTML = `<div class="pile-label">Discard Pile (oldest \u2192 newest)</div>`;
   const wrap = document.createElement('div');
   wrap.className = 'discard-stack-wrap';
   const stack = document.createElement('div');
@@ -1637,7 +1776,7 @@ function renderHand(data, handSection){
 
   const groupBtn = document.createElement('button');
   groupBtn.className='btn-outline';
-  groupBtn.textContent='Group Selected';
+  groupBtn.textContent='Group Selected (new meld)';
   groupBtn.disabled = !(canAct && selectedCards.size>=3 && hand.length-selectedCards.size>0);
   groupBtn.onclick = ()=>{
     groupBtn.disabled = true;
@@ -1697,7 +1836,6 @@ function renderRoundEnd(data){
   const oppDelta = iWon ? result.loserDelta : result.winnerDelta;
   const mySign = myDelta>=0 ? '+' : '';
   const oppSign = oppDelta>=0 ? '+' : '';
-  const myHand = (data.hands && data.hands[mySeat]) || [];
 
   const statusPanel = document.getElementById('statusPanel');
   const ready = Object.assign({sam:false,zoe:false}, data.readyForNext);
@@ -1717,16 +1855,33 @@ function renderRoundEnd(data){
   if(!ready[mySeat]) wireOnce('nextRoundBtn', markReadyForNextRound);
   document.getElementById('backToStartBtn').onclick = localBackToStart;
 
-  // Show what was left in your hand, positioned below your in-play cards
-  // (myMeldsRow sits right above handSection in the layout already).
-  const handSection = document.getElementById('handSection');
-  handSection.style.display = 'flex';
-  document.getElementById('statusText').textContent = myHand.length ? 'Cards left in your hand' : 'Your hand was empty \u2014 nice.';
-  document.getElementById('hintText').textContent = '';
-  const fan = document.getElementById('handFan');
-  fan.innerHTML = '';
-  myHand.forEach(c=>fan.appendChild(htmlToEl(cardHTML(c, data.wildRank, false))));
-  document.getElementById('actionRow').innerHTML = '';
+  if(iWon){
+    // You went out - your own hand is always empty, so there's nothing
+    // useful to show in your own hand area. What's interesting is what your
+    // opponent got stuck holding - shown right above their play area.
+    document.getElementById('handSection').style.display = 'none';
+    const oppHand = (data.hands && data.hands[otherSeat(mySeat)]) || [];
+    const oppFan = document.getElementById('oppFinalHandFan');
+    oppFan.style.display = 'flex';
+    oppFan.innerHTML = '';
+    if(oppHand.length){
+      oppHand.forEach(c=>oppFan.appendChild(htmlToEl(cardHTML(c, data.wildRank, false))));
+    } else {
+      oppFan.innerHTML = `<div style="font-size:13px;opacity:.7;width:100%;text-align:center;">${oppName}'s hand was empty too \u2014 close one!</div>`;
+    }
+  } else {
+    // You lost - show what was left in your own hand, below your play area.
+    document.getElementById('oppFinalHandFan').style.display = 'none';
+    const myHand = (data.hands && data.hands[mySeat]) || [];
+    const handSection = document.getElementById('handSection');
+    handSection.style.display = 'flex';
+    document.getElementById('statusText').textContent = myHand.length ? 'Cards left in your hand' : 'Your hand was empty \u2014 nice.';
+    document.getElementById('hintText').textContent = '';
+    const fan = document.getElementById('handFan');
+    fan.innerHTML = '';
+    myHand.forEach(c=>fan.appendChild(htmlToEl(cardHTML(c, data.wildRank, false))));
+    document.getElementById('actionRow').innerHTML = '';
+  }
 }
 
 /* =========================================================================
@@ -1973,13 +2128,18 @@ function applyLayoffToMelds(melds, card, option, ownerSeat){
     // doesn't merge into that meld; it becomes its own standalone in-play
     // card sitting in front of whoever played it.
     const targetMeld = melds.find(m=>m.id===option.meldId);
+    const newSlot = {card, isWild:false, ownerSeat};
+    if(targetMeld && targetMeld.type==='run'){
+      const wildSlot = targetMeld.slots[option.slotIndex];
+      if(wildSlot) newSlot.runValue = wildSlot.runValue;
+    }
     melds.push({
       id: genId(),
       type: 'single',
       starterSeat: ownerSeat,
       extendsMeldId: option.meldId,
       label: targetMeld ? ('Matches wild in '+meldLabel(targetMeld)) : 'Matches a wild',
-      slots: [{card, isWild:false, ownerSeat}]
+      slots: [newSlot]
     });
     return;
   }
