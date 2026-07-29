@@ -1609,7 +1609,7 @@ function renderDealing(data, statusPanel){
     if(mySeat===dealerSeat){
       statusPanel.innerHTML = `
         <h3 style="color:var(--gold-bright)">You're dealing this round</h3>
-        <p style="opacity:.75;font-size:14px;margin-bottom:14px;">Draw a card &mdash; its rank becomes wild, and it plus more cards up to that rank's value make up your hand.</p>
+        <p style="opacity:.75;font-size:14px;margin-bottom:14px;"></p>
         <button class="btn-gold" id="dealerDrawBtn">Draw Wild Card</button>`;
       wireOnce('dealerDrawBtn', ()=>dealerDraw());
     } else {
